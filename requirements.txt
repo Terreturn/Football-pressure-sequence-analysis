@@ -1,7 +1,7 @@
 numpy
 pandas
 scipy
-scikit-learn
+scikit-learn>=1.6   # FrozenEstimator (used by the isotonic calibration in s45) requires >= 1.6
 xgboost
 pyarrow
 shapely
