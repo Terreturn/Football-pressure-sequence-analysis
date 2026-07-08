@@ -1,9 +1,10 @@
 """
 Shared HPN feature builder — used by scoring (apply_2025_2026.py) / comparison
-scripts so the 30-feature matrix is constructed identically to the notebook's
+scripts so the feature matrix is constructed identically to the notebook's
 selected model (no train/serve skew).
 
-Feature set (30) — matches the notebook's feature selection (ALL_FEATURES_BI):
+Built matrix (30 cols = the notebook's ALL_FEATURES_BI). The DEPLOYED model uses a
+17-feature de-collinearised subset (PRUNED_17, notebook cell 25e), selected from these:
   19 base carrier features (from the Stage-3 parquet)
 +  7 temporal first-difference features (Δt=1 within sequence)
 +  4 incoming-ball (ball_in) features
@@ -37,7 +38,7 @@ DIFF_SRC = {
 TEMPORAL = list(DIFF_SRC) + ["d_press_redistribution_dt"]
 BALLIN = ["ball_in_dx", "ball_in_dy", "ball_in_dist", "ball_in_angle"]
 
-# canonical model input order (30) — the notebook's ALL_FEATURES_BI
+# full built-matrix column order (30) — notebook's ALL_FEATURES_BI; deployed model subsets to 17 (PRUNED_17)
 FEATURES = BASE_FEATURES + TEMPORAL + BALLIN
 
 GK = ["match_id", "seq_id"]
