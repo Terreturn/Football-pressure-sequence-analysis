@@ -20,13 +20,20 @@ player_stats/
 *.pt
 # trained models
 *.joblib
-# feature / sequence tables produced by s1 / s3
+# feature / sequence tables produced by s1 / s3 (any season suffix)
 *.parquet
 all_high_pressure_sequences_v2.csv
 all_sequence_labels_v2.csv
 sequences.csv
+sequences_*.csv
 labels.csv
+labels_*.csv
 wc2026_*.csv
+# season-analysis outputs of apply_season.py / compare_calibration.py
+analysis_out/
+analysis_*/
+# local notebook snapshots (season-frozen copies of the main notebooks)
+*_ml_pipeline_20*.ipynb
 # standalone figure exports (the notebooks embed their figures inline already)
 *.png
 
