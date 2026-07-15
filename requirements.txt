@@ -7,3 +7,4 @@ pyarrow
 shapely
 matplotlib
 joblib
+adjustText          # optional label repulsion in apply_season.py's intensity figure (degrades gracefully)

@@ -1,7 +1,8 @@
 """
-Shared HPN feature builder — used by scoring (apply_2025_2026.py) / comparison
-scripts so the feature matrix is constructed identically to the notebook's
-selected model (no train/serve skew).
+Shared HPN feature builder — used by the training / calibration / scoring
+scripts (train_calibrated.py, calibrate_season.py, apply_season.py,
+compare_calibration.py) so the feature matrix is constructed identically to the
+notebook's selected model (no train/serve skew).
 
 Built matrix (30 cols = the notebook's ALL_FEATURES_BI). The DEPLOYED model uses a
 17-feature de-collinearised subset (PRUNED_17, notebook cell 25e), selected from these:
@@ -40,6 +41,23 @@ BALLIN = ["ball_in_dx", "ball_in_dy", "ball_in_dist", "ball_in_angle"]
 
 # full built-matrix column order (30) — notebook's ALL_FEATURES_BI; deployed model subsets to 17 (PRUNED_17)
 FEATURES = BASE_FEATURES + TEMPORAL + BALLIN
+
+# ── DEPLOYED model input (17) — de-collinearised subset of FEATURES (notebook cell 25e) ──────
+# One representative kept per collinear cluster. Effect on the 2024/25 GroupKFold(5) CV:
+#   max VIF 12.3 -> 2.3, max |r| 0.95 -> 0.61, at a cost of dAUC -0.0035 (log-loss +0.0031).
+# This is what makes feature importance / VAEP driver attribution stable.
+# NOTE: anything that SCORES with a saved bundle should prefer bundle["features"] over this
+# constant, so the columns always follow the model that is actually loaded.
+DROP_COLLINEAR = [
+    "max_press_on_carrier", "nearest_def_dist", "n_pressers_on_carrier",  # -> P_total, carrier_enemy_density
+    "mean_lane_openness",                                                 # -> n_open_pass / best_pass_w
+    "n_press_on_attackers", "max_press_on_attacker", "min_recv_freedom",
+    "mean_recv_freedom", "frac_attackers_pressed",                        # -> total_press_on_attackers
+    "d_nearest_def_dist_dt", "d_press_redistribution_dt",                 # -> d_P_total_dt
+    "ball_in_dx", "ball_in_dy",                                           # -> polar (ball_in_dist, ball_in_angle)
+]
+PRUNED_17 = [f for f in FEATURES if f not in DROP_COLLINEAR]
+assert len(PRUNED_17) == 17, f"expected 17 deployed features, got {len(PRUNED_17)}"
 
 GK = ["match_id", "seq_id"]
 
