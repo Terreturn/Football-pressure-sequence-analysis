@@ -28,6 +28,33 @@ mirrors run the **same functions** from `src/` headlessly, so the two can never 
 The detection algorithm is specified in
 [`high_press_detection_spec.md`](high_press_detection_spec.md).
 
+## Workflow
+
+The end-to-end order is **S1 → S3 → S4 → (per-season calibration) → S5**; the CLI
+scripts are alternatives to S4/S5, not later stages.
+
+**A. Model a new dataset from scratch**
+```
+s1_build_sequences.py → s3_build_features.py → s4_model_training.ipynb (Run All)
+                                                └→ hpn_xgb_outcome_calibrated.joblib
+```
+
+**B. Analyse a season (the routine loop)**
+```
+run S1+S3 on that season's raw JSON
+→ calibrate_season.py            fit the season's isotonic layer (frozen ranker)
+→ s5_press_analysis.ipynb        point MODEL / FEAT_PARQUET / LABELS_CSV / EVENTS_DIR /
+  (Run All)                      SEASON_LABEL at the season — zero code changes
+  └→ analysis_out/: efficiency + intensity + step_valuation + drivers (csv),
+     4 figures, lineage.txt
+```
+The **S5 notebook is the pipeline's terminus** — the tables and figures it writes are
+the deliverables. `apply_season.py` produces the identical outputs headlessly (cron/CI).
+
+**C. Guard rail.** Scoring matches the model saw in training triggers a lineage
+**warning** (run still completes); the training season's trustworthy analysis lives in
+S4's OOF sections instead.
+
 Every command below uses a Python env with the packages in `requirements.txt`. On Windows
 prefix `$env:PYTHONIOENCODING="utf-8"` so non-ASCII log output prints cleanly.
 
