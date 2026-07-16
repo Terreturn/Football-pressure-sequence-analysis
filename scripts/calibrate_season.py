@@ -39,7 +39,8 @@ from sklearn.metrics import log_loss, brier_score_loss, accuracy_score, roc_auc_
 from sklearn.preprocessing import label_binarize
 warnings.filterwarnings("ignore")
 
-HERE = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, os.path.join(HERE, "src"))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # repo root (scripts/ is one level down)
+sys.path.insert(0, os.path.join(HERE, "src"))
 from hpn_features import build_feature_matrix
 
 def _req(name):

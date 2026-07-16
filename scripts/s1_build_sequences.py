@@ -26,7 +26,8 @@ import os, sys, csv, json, glob, time
 import numpy as np
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-for _p in (os.path.join(_HERE, "src"), _HERE):       # pressure model lives in src/ (or root)
+_REPO = os.path.dirname(_HERE)                       # repo root (scripts/ lives one level down)
+for _p in (os.path.join(_REPO, "src"), _REPO):       # pressure model lives in src/ (or root)
     if os.path.exists(os.path.join(_p, "pressure_distance_v2.py")):
         sys.path.insert(0, _p); break
 from pressure_distance_v2 import PressureParams, total_pressure
@@ -41,11 +42,11 @@ F360_DIR     = os.environ.get("F360_DIR")      # folder containing 360 freeze-fr
 
 # Convenience defaults for any path left unset above: look under one root
 # STATSBOMB_DIR, expecting subfolders  events/  and  360/ .
-_ROOT        = os.environ.get("STATSBOMB_DIR", os.path.dirname(_HERE))
+_ROOT        = os.environ.get("STATSBOMB_DIR", os.path.dirname(_REPO))
 EVENTS_DIR   = EVENTS_DIR or os.path.join(_ROOT, "events")
 F360_DIR     = F360_DIR   or os.path.join(_ROOT, "360")
-OUT_SEQ      = os.environ.get("S1_OUT_SEQ", os.path.join(_HERE, "sequences.csv"))
-OUT_LAB      = os.environ.get("S1_OUT_LAB", os.path.join(_HERE, "labels.csv"))
+OUT_SEQ      = os.environ.get("S1_OUT_SEQ", os.path.join(_REPO, "sequences.csv"))
+OUT_LAB      = os.environ.get("S1_OUT_LAB", os.path.join(_REPO, "labels.csv"))
 LIMIT        = int(os.environ.get("S1_LIMIT", "0"))   # >0 = only first N matches (debug)
 
 params = PressureParams()
