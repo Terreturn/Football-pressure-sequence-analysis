@@ -1,6 +1,6 @@
 """
 Train + calibrate the SELECTED HPN outcome model on a training season (CLI
-mirror of notebook s45 cells 25a/25b — the deployed model M1).
+mirror of the S4 notebook's calibration cells — the deployed model M1).
 
 Model = tuned, UNWEIGHTED XGBoost (BEST_PARAMS from the grouped search) on the
 17 de-collinearised features (src/hpn_features.py PRUNED_17 — a subset of the 30-column
@@ -112,8 +112,10 @@ def report(tag, P):
 report("uncalibrated", p_un)
 report("calibrated", p_ca)
 
-# ── save bundle ───────────────────────────────────────────────────────────────
+# ── save bundle (train/calib match ids = lineage, checked by press_analysis) ──
 joblib.dump({"model": cal, "base_model": base, "label_encoder": le,
              "features": PRUNED_17, "params": XGB_PARAMS,
-             "weighting": "unweighted", "calib_method": CALIB_METHOD}, OUT_MODEL)
+             "weighting": "unweighted", "calib_method": CALIB_METHOD,
+             "train_matches": sorted(pd.Series(groups[tr]).astype(str).unique()),
+             "calib_matches": sorted(pd.Series(groups[ca]).astype(str).unique())}, OUT_MODEL)
 print(f"\nsaved -> {OUT_MODEL}")
