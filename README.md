@@ -16,15 +16,17 @@ variables.
 | **1** | raw events + 360 JSON → high-press sequences + labels | `s1_build_sequences.py` | script |
 | **2** | HPN construction & illustration figures | `s2_hpn_construction.ipynb` | notebook |
 | **3** | sequences → carrier-centric ML feature table | `s3_build_features.py` | script |
-| **4–5** | model comparison, tuning, de-collinearisation, calibration + season analysis | `s45_ml_pipeline.ipynb` | notebook |
-| **6** | train + calibrate the deployed model (CLI mirror of the notebook's selected model) | `train_calibrated.py` | script |
-| **7** | fit a per-season isotonic calibration layer for a NEW season | `calibrate_season.py` | script |
-| **8** | score any (held-out) season + full team pressing analysis | `apply_season.py` | script |
+| **4** | model training: comparison, tuning, de-collinearisation (30→17), calibration → deployed bundle | `s4_model_training.ipynb` | notebook |
+| **5** | season analysis: efficiency + style, figures & tables for ANY held-out season | `s5_press_analysis.ipynb` | notebook |
+| 4′ | CLI mirror of Stage 4's selected model (headless retrain) | `train_calibrated.py` | script |
+| — | fit a per-season isotonic calibration layer for a NEW season | `calibrate_season.py` | script |
+| 5′ | CLI mirror of Stage 5 (headless season analysis) | `apply_season.py` | script |
 | — | calibration diagnostics (deployed model vs baselines, reliability curves) | `compare_calibration.py` | script |
 
-Scripts do the batch work; notebooks are where results are **shown and explained**
-(HPN figures, model comparison, calibration, VAEP plots — saved inline). The detection
-algorithm is specified in [`high_press_detection_spec.md`](high_press_detection_spec.md).
+Notebooks carry the **narrative** (why this model, how to read each figure); the CLI
+mirrors run the **same functions** from `src/` headlessly, so the two can never drift.
+The detection algorithm is specified in
+[`high_press_detection_spec.md`](high_press_detection_spec.md).
 
 Every command below uses a Python env with the packages in `requirements.txt`. On Windows
 prefix `$env:PYTHONIOENCODING="utf-8"` so non-ASCII log output prints cleanly.
@@ -103,26 +105,47 @@ python s3_build_features.py
 **Output.** `features.parquet` (`FEAT_PARQUET`, default `hpn_carrier_features.parquet`):
 **24 columns** = 19 features + `match_id, seq_id, ev_pos, outcome_tag, terminal`.
 
-### Stage 4–5 — `s45_ml_pipeline.ipynb`
-**What.** Loads the feature parquet, **adds 7 temporal first-difference features (Δt=1) + 4
-incoming-ball (`ball_in`) features → 30 features**, trains and compares models (Logistic vs
-XGBoost balanced vs XGBoost tuned), validates (GroupKFold CV + calibration / reliability),
-**de-collinearises 30 → 17** (cell 25e) and selects the deployed model, then runs the
-VAEP-style step valuation and the season team analysis (intensity vs. efficiency,
-efficiency ranking, pressing-style fingerprint, drivers).
+### Stage 4 — `s4_model_training.ipynb`
+**What.** The modelling narrative, end to end: loads the feature parquet, **adds 7
+temporal first-difference features (Δt=1) + 4 incoming-ball (`ball_in`) features → 30
+features**, trains and compares models (Logistic vs XGBoost balanced vs XGBoost tuned),
+validates (GroupKFold CV + OOF calibration / reliability), **de-collinearises 30 → 17**
+and selects the deployed model, then trains + isotonically calibrates it (80/20
+group-aware split) and saves the bundle **with train/calib lineage**. Contains no team
+analysis — that is Stage 5.
 
-**Usage.** Open in Jupyter / VSCode **from the repo folder** and **Run All**, or headless:
+**Usage.** Open in Jupyter / VSCode **from the repo folder** and **Run All**
+(`RUN_SEARCH=1` re-runs the ~11-min hyper-parameter search; default uses the pinned
+result), or headless:
 ```bash
-jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=600 s45_ml_pipeline.ipynb
+jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=600 s4_model_training.ipynb
 ```
 
-**Output.** Trained bundles (`hpn_xgb_outcome*.joblib`) + metrics, calibration/reliability
-plots, VAEP and team figures **embedded inline** in the notebook.
+**Output.** `hpn_xgb_outcome_calibrated.joblib` (deployed bundle, incl.
+`train_matches`/`calib_matches`) + metrics and reliability plots inline.
 
-### Stage 6 — `train_calibrated.py`
-**What.** CLI mirror of the notebook's selected model: tuned unweighted XGBoost on the
+### Stage 5 — `s5_press_analysis.ipynb`
+**What.** The analysis narrative for **any held-out season**: scores every anchor with a
+trained bundle, derives the step press-value $v_t$ and step labels, then the efficiency
+analysis (regain table + intensity-vs-efficiency quadrant map) and the style analysis
+(pressing-style fingerprint + drivers of $v_t$). All computation is imported from
+`src/press_analysis.py` — the notebook is the narrated shell.
+
+**Usage.** Season selection is pure environment variables (see the notebook's config
+cell): set `MODEL` (the season's bundle), `FEAT_PARQUET`, `LABELS_CSV`, `EVENTS_DIR`,
+`SEASON_LABEL` and **Run All**. A **lineage check** warns — without blocking — if any
+scored match was in the bundle's training/calibration sets (the training season itself
+belongs in Stage 4's OOF sections).
+
+**Output.** Tables + figures inline **and** written to `OUTDIR`
+(default `analysis_out/`): `intensity.csv`, `efficiency.csv`, `step_valuation.csv`,
+`drivers.csv`, `lineage.txt` + 4 figures.
+
+### CLI mirror of Stage 4 — `train_calibrated.py`
+**What.** Headless retrain of the selected model: tuned unweighted XGBoost on the
 17 de-collinearised features, 80/20 **group-aware** split (by match), isotonic
-calibration on the held-out 20%. Prints before/after reliability.
+calibration on the held-out 20%. Prints before/after reliability. Saves the same
+lineage fields as the notebook.
 
 **Usage.**
 ```bash
@@ -134,11 +157,12 @@ python train_calibrated.py                      # -> hpn_xgb_outcome_calibrated.
 The pinned `XGB_PARAMS` come from a grouped randomised search on the original training
 season; re-run the notebook's search (cell 14) when training on a very different dataset.
 
-### Stage 7 — `calibrate_season.py`
-**What.** Per-season calibration: keeps the deployed ranking model **frozen** and fits a
-new isotonic layer on a NEW season's first `N_CALIB` matches (chronological if you provide
-`MATCHES_JSON`), then evaluates uncalibrated vs old layer vs new layer on the remaining
-matches. Use when class base rates drift across seasons.
+### Per-season calibration — `calibrate_season.py`
+**What.** Keeps the deployed ranking model **frozen** and fits a new isotonic layer on a
+NEW season's first `N_CALIB` matches (chronological if you provide `MATCHES_JSON`), then
+evaluates uncalibrated vs old layer vs new layer on the remaining matches. Use when class
+base rates drift across seasons. The base bundle's `train_matches` lineage is carried
+over into the per-season bundle.
 
 **Usage.**
 ```bash
@@ -150,12 +174,9 @@ export SEASON_LABEL="2025-26"
 python calibrate_season.py    # -> hpn_xgb_outcome_calibrated_2025-26.joblib
 ```
 
-### Stage 8 — `apply_season.py`
-**What.** Scores a (held-out) season with a trained bundle and reproduces the full team
-pressing analysis: per-step valuation v_t + step labels (Effective / Beaten / Risky / …),
-team **intensity vs. regain-efficiency** quadrant map, efficiency ranking (regain rate,
-value/seq, residual, E/(E+B)), pressing-style fingerprint (10 z-scored descriptors), and
-the pressure-channel **drivers** of v_t.
+### CLI mirror of Stage 5 — `apply_season.py`
+**What.** Headless version of the S5 notebook — same functions from
+`src/press_analysis.py`, same outputs, same lineage check.
 
 **Usage.**
 ```bash
@@ -166,8 +187,23 @@ export MODEL=hpn_xgb_outcome_calibrated_2025-26.joblib   # the per-season bundle
 export SEASON_LABEL="2025/26"
 # optional: fingerprint row order (e.g. final league table), one team per line
 # export TEAM_ORDER=/path/to/league_table.txt
-python apply_season.py        # -> analysis_out/{intensity,efficiency,step_valuation,drivers}.csv + 4 figures
+python apply_season.py   # -> analysis_out/{intensity,efficiency,step_valuation,drivers}.csv
+                         #    + lineage.txt + 4 figures
 ```
+
+### Lineage check (all Stage-5 entry points)
+Every trained bundle records which matches its ranker was **trained** on and which
+fitted its **isotonic layer**. When a season is scored, `press_analysis.check_lineage`
+compares the scored matches against both sets and **warns without blocking**:
+
+- overlap with `train_matches` → **warning** (scores are in-sample; use S4's OOF
+  analysis for the training season);
+- overlap with `calib_matches` → **note** (mild — only the monotone calibration map
+  saw them);
+- no overlap → a green-light confirmation line.
+
+The verdict is persisted to `OUTDIR/lineage.txt`, so any saved analysis remains
+auditable later. Old bundles without lineage fields skip the check with a notice.
 
 ### Diagnostics — `compare_calibration.py`
 **What.** Reliability comparison of the deployed bundle against a Logistic baseline and a
@@ -181,7 +217,7 @@ optionally a fully held-out second season (set `FEAT_PARQUET_NEW` / `LABELS_NEW`
 This repository is **code only** — bring your own StatsBomb event + 360 JSON (e.g. the public
 [StatsBomb Open Data](https://github.com/statsbomb/open-data)) and point `EVENTS_DIR` /
 `F360_DIR` at them. The pipeline then produces sequences/labels (s1) → features (s3) →
-trained model (s45 / stage 6) → per-season calibration (stage 7) → season analysis (stage 8).
+trained model (s4) → per-season calibration (`calibrate_season.py`) → season analysis (s5).
 The committed notebooks keep the **saved outputs** of a prior run so the results are visible
 without re-running.
 
@@ -190,17 +226,21 @@ No absolute paths are hard-coded; locations resolve from environment variables.
 
 | Env var | Used by | Meaning | Default |
 |---|---|---|---|
-| `STATSBOMB_DIR` | s1, s3, 6, diag | data root (builds the two defaults below) | the repo's **parent** folder |
-| `EVENTS_DIR` | s1, s3, 6, 7, 8, diag | events JSON folder | `$STATSBOMB_DIR/events` |
+| `STATSBOMB_DIR` | s1, s3, 4′, s5, diag | data root (builds the two defaults below) | the repo's **parent** folder |
+| `EVENTS_DIR` | s1, s3, s5, 4′, 5′, calib, diag | events JSON folder | `$STATSBOMB_DIR/events` |
 | `F360_DIR` | s1, s3 | 360 freeze-frame JSON folder | `$STATSBOMB_DIR/360` (s1) |
-| `LABELS_CSV` | s3, 6, 7, 8, diag | labels csv (Stage-1 output) | `labels.csv` / `all_sequence_labels_v2.csv` |
-| `FEAT_PARQUET` | s3, 6, 7, 8, diag | features parquet (Stage-3 output) | `hpn_carrier_features.parquet` |
-| `MODEL` / `BASE_MODEL` / `OUT_MODEL` | 6, 7, 8, diag | trained bundle paths | `hpn_xgb_outcome_calibrated*.joblib` |
-| `MATCHES_JSON` / `N_CALIB` / `SEASON_LABEL` | 7, 8 | chronological order · calib size · display label | — / 20% / "season" |
-| `TEAM_ORDER` / `OUTDIR` | 8, diag | fingerprint row order file · output folder | regain-rate order / `analysis_out/` |
+| `LABELS_CSV` | s3, s5, 4′, 5′, calib, diag | labels csv (Stage-1 output) | `labels.csv` / `all_sequence_labels_v2.csv` |
+| `FEAT_PARQUET` | s3, s5, 4′, 5′, calib, diag | features parquet (Stage-3 output) | `hpn_carrier_features.parquet` |
+| `MODEL` / `BASE_MODEL` / `OUT_MODEL` | s5, 4′, 5′, calib, diag | trained bundle paths | `hpn_xgb_outcome_calibrated*.joblib` |
+| `MATCHES_JSON` / `N_CALIB` / `SEASON_LABEL` | s5, 5′, calib | chronological order · calib size · display label | — / 20% / "season" |
+| `TEAM_ORDER` / `OUTDIR` | s5, 5′, diag | fingerprint row order file · output folder | regain-rate order / `analysis_out/` |
+| `RUN_SEARCH` | s4 | `1` re-runs the hyper-parameter search (else pinned result) | `0` |
 | `FEAT_PARQUET_NEW` / `LABELS_NEW` / `EVENTS_DIR_NEW` | diag | optional held-out second season | unset (section B skipped) |
 | `S1_OUT_SEQ` / `S1_OUT_LAB` / `S1_LIMIT` | s1 | output names / debug match limit | `sequences.csv` / `labels.csv` / all |
 | `HPN_DIR` | notebooks | repo root | the notebook's working directory |
+
+(4′/5′ = the CLI mirrors `train_calibrated.py` / `apply_season.py`; calib =
+`calibrate_season.py`; diag = `compare_calibration.py`.)
 
 `EVENTS_DIR` and `F360_DIR` are **independent** — set them to any two folders (they need not
 share a parent). Run notebooks from the repo folder (so `os.getcwd()` resolves the repo) or set
@@ -210,16 +250,18 @@ input **fail fast with a clear message** naming the missing env var.
 ## Layout
 ```
 Football-pressure-sequence-analysis/
-├─ s1_build_sequences.py        stage 1   (JSON → sequences/labels)
-├─ s2_hpn_construction.ipynb    stage 2   (HPN illustration)
-├─ s3_build_features.py         stage 3   (sequences → 19-feature table)
-├─ s45_ml_pipeline.ipynb        stage 4-5 (model comparison → 17-feat deployed model + analysis)
-├─ train_calibrated.py          stage 6   (CLI: train + calibrate the deployed model)
-├─ calibrate_season.py          stage 7   (CLI: per-season isotonic layer for a new season)
-├─ apply_season.py              stage 8   (CLI: score a season + team pressing analysis)
+├─ s1_build_sequences.py        stage 1  (JSON → sequences/labels)
+├─ s2_hpn_construction.ipynb    stage 2  (HPN illustration)
+├─ s3_build_features.py         stage 3  (sequences → 19-feature table)
+├─ s4_model_training.ipynb      stage 4  (model comparison → 17-feat calibrated bundle)
+├─ s5_press_analysis.ipynb      stage 5  (season analysis: efficiency + style, any season)
+├─ train_calibrated.py          CLI mirror of stage 4 (headless retrain)
+├─ calibrate_season.py          per-season isotonic layer for a new season
+├─ apply_season.py              CLI mirror of stage 5 (headless season analysis)
 ├─ compare_calibration.py       diagnostics (reliability vs baselines)
 ├─ src/
 │   ├─ hpn_features.py          shared feature builder (30-col matrix; PRUNED_17 deployed subset)
+│   ├─ press_analysis.py        shared analysis library (lineage check, v_t, tables, figures)
 │   ├─ pressure_distance_v2.py  pressure model (logistic kernels, total pressure)
 │   └─ voronoi_pitch.py         pitch / Voronoi helpers (stage 2)
 ├─ high_press_detection_spec.md detection algorithm spec

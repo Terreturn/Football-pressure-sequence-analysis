@@ -120,10 +120,11 @@ pd.set_option("display.width", 200)
 print(f"\n=== {SEASON_LABEL} late-season eval ({len(eval_mids)} matches, out-of-sample for both layers) ===")
 print(comp[cols].round(4).to_string())
 
-# ── save the per-season bundle ────────────────────────────────────────────────
+# ── save the per-season bundle (train_matches carried over = lineage survives) ─
 joblib.dump({"model": cal_new, "base_model": base, "label_encoder": le,
              "features": FEATS, "params": B.get("params"), "weighting": "unweighted",
              "calib_method": "isotonic", "calib_scheme": "per-season",
              "calib_fit": f"{SEASON_LABEL} first {N_CALIB} matches ({span})",
+             "train_matches": B.get("train_matches", []),
              "calib_matches": sorted(calib_mids)}, OUT_MODEL)
 print(f"\nsaved -> {os.path.basename(OUT_MODEL)}")
