@@ -33,7 +33,7 @@ import matplotlib
 matplotlib.use("Agg")
 warnings.filterwarnings("ignore")
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # repo root (scripts/ is one level down)
 sys.path.insert(0, os.path.join(HERE, "src"))
 from hpn_features import build_feature_matrix, FEATURES
 import press_analysis as pa

@@ -13,20 +13,20 @@ variables.
 
 | Stage | What | File | Type |
 |---|---|---|---|
-| **1** | raw events + 360 JSON → high-press sequences + labels | `s1_build_sequences.py` | script |
-| **2** | HPN construction & illustration figures | `s2_hpn_construction.ipynb` | notebook |
-| **3** | sequences → carrier-centric ML feature table | `s3_build_features.py` | script |
-| **4** | model training: comparison, tuning, de-collinearisation (30→17), calibration → deployed bundle | `s4_model_training.ipynb` | notebook |
-| **5** | season analysis: efficiency + style, figures & tables for ANY held-out season | `s5_press_analysis.ipynb` | notebook |
-| 4′ | CLI mirror of Stage 4's selected model (headless retrain) | `train_calibrated.py` | script |
-| — | fit a per-season isotonic calibration layer for a NEW season | `calibrate_season.py` | script |
-| 5′ | CLI mirror of Stage 5 (headless season analysis) | `apply_season.py` | script |
-| — | calibration diagnostics (deployed model vs baselines, reliability curves) | `compare_calibration.py` | script |
+| **1** | raw events + 360 JSON → high-press sequences + labels | `scripts/s1_build_sequences.py` | script |
+| **2** | HPN construction & illustration figures | `notebooks/s2_hpn_construction.ipynb` | notebook |
+| **3** | sequences → carrier-centric ML feature table | `scripts/s3_build_features.py` | script |
+| **4** | model training: comparison, tuning, de-collinearisation (30→17), calibration → deployed bundle | `notebooks/s4_model_training.ipynb` | notebook |
+| **5** | season analysis: efficiency + style, figures & tables for ANY held-out season | `notebooks/s5_press_analysis.ipynb` | notebook |
+| 4′ | CLI mirror of Stage 4's selected model (headless retrain) | `scripts/train_calibrated.py` | script |
+| — | fit a per-season isotonic calibration layer for a NEW season | `scripts/calibrate_season.py` | script |
+| 5′ | CLI mirror of Stage 5 (headless season analysis) | `scripts/apply_season.py` | script |
+| — | calibration diagnostics (deployed model vs baselines, reliability curves) | `scripts/compare_calibration.py` | script |
 
 Notebooks carry the **narrative** (why this model, how to read each figure); the CLI
 mirrors run the **same functions** from `src/` headlessly, so the two can never drift.
 The detection algorithm is specified in
-[`high_press_detection_spec.md`](high_press_detection_spec.md).
+[`docs/high_press_detection_spec.md`](docs/high_press_detection_spec.md).
 
 ## Workflow
 
@@ -35,16 +35,16 @@ scripts are alternatives to S4/S5, not later stages.
 
 **A. Model a new dataset from scratch**
 ```
-s1_build_sequences.py → s3_build_features.py → s4_model_training.ipynb (Run All)
+scripts/s1_build_sequences.py → scripts/s3_build_features.py → notebooks/s4_model_training.ipynb
                                                 └→ hpn_xgb_outcome_calibrated.joblib
 ```
 
 **B. Analyse a season (the routine loop)**
 ```
 run S1+S3 on that season's raw JSON
-→ calibrate_season.py            fit the season's isotonic layer (frozen ranker)
-→ s5_press_analysis.ipynb        point MODEL / FEAT_PARQUET / LABELS_CSV / EVENTS_DIR /
-  (Run All)                      SEASON_LABEL at the season — zero code changes
+→ scripts/calibrate_season.py    fit the season's isotonic layer (frozen ranker)
+→ notebooks/s5_press_analysis.ipynb   point MODEL / FEAT_PARQUET / LABELS_CSV /
+  (Run All)                          EVENTS_DIR / SEASON_LABEL — zero code changes
   └→ analysis_out/: efficiency + intensity + step_valuation + drivers (csv),
      4 figures, lineage.txt
 ```
@@ -89,13 +89,13 @@ are possession-attack-normalised, so **no matches.json is needed**. Events ↔ 3
 ```bash
 export EVENTS_DIR=/data/events      # folder of event *.json
 export F360_DIR=/data/360           # folder of 360 *.json   (independent of EVENTS_DIR)
-python s1_build_sequences.py
-# quick test on the first N matches:  S1_LIMIT=5 python s1_build_sequences.py
+python scripts/s1_build_sequences.py
+# quick test on the first N matches:  S1_LIMIT=5 python scripts/s1_build_sequences.py
 ```
 ```powershell
 # Windows PowerShell
 $env:EVENTS_DIR="C:\data\events"; $env:F360_DIR="C:\data\360"
-python s1_build_sequences.py
+python scripts/s1_build_sequences.py
 ```
 (Or set one root `STATSBOMB_DIR` whose subfolders are `events/` and `360/`.)
 
@@ -126,7 +126,7 @@ export LABELS_CSV=/path/to/labels.csv        # e.g. a Stage-1 output
 export EVENTS_DIR=/data/events
 export F360_DIR=/data/360
 export FEAT_PARQUET=/path/to/features.parquet
-python s3_build_features.py
+python scripts/s3_build_features.py
 ```
 
 **Output.** `features.parquet` (`FEAT_PARQUET`, default `hpn_carrier_features.parquet`):
@@ -145,7 +145,7 @@ analysis — that is Stage 5.
 (`RUN_SEARCH=1` re-runs the ~11-min hyper-parameter search; default uses the pinned
 result), or headless:
 ```bash
-jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=600 s4_model_training.ipynb
+jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=600 notebooks/s4_model_training.ipynb
 ```
 
 **Output.** `hpn_xgb_outcome_calibrated.joblib` (deployed bundle, incl.
@@ -179,7 +179,7 @@ lineage fields as the notebook.
 export FEAT_PARQUET=/path/to/features.parquet   # Stage-3 output
 export LABELS_CSV=/path/to/labels.csv           # Stage-1 output
 export EVENTS_DIR=/data/events                  # raw events (ball_in features)
-python train_calibrated.py                      # -> hpn_xgb_outcome_calibrated.joblib
+python scripts/train_calibrated.py                      # -> hpn_xgb_outcome_calibrated.joblib
 ```
 The pinned `XGB_PARAMS` come from a grouped randomised search on the original training
 season; re-run the notebook's search (cell 14) when training on a very different dataset.
@@ -198,7 +198,7 @@ export LABELS_CSV=/path/to/new_season_labels.csv
 export EVENTS_DIR=/data/new_season/events
 export MATCHES_JSON=/data/new_season/matches.json   # optional, for chronological order
 export SEASON_LABEL="2025-26"
-python calibrate_season.py    # -> hpn_xgb_outcome_calibrated_2025-26.joblib
+python scripts/calibrate_season.py    # -> hpn_xgb_outcome_calibrated_2025-26.joblib
 ```
 
 ### CLI mirror of Stage 5 — `apply_season.py`
@@ -214,7 +214,7 @@ export MODEL=hpn_xgb_outcome_calibrated_2025-26.joblib   # the per-season bundle
 export SEASON_LABEL="2025/26"
 # optional: fingerprint row order (e.g. final league table), one team per line
 # export TEAM_ORDER=/path/to/league_table.txt
-python apply_season.py   # -> analysis_out/{intensity,efficiency,step_valuation,drivers}.csv
+python scripts/apply_season.py   # -> analysis_out/{intensity,efficiency,step_valuation,drivers}.csv
                          #    + lineage.txt + 4 figures
 ```
 
@@ -270,32 +270,38 @@ No absolute paths are hard-coded; locations resolve from environment variables.
 `calibrate_season.py`; diag = `compare_calibration.py`.)
 
 `EVENTS_DIR` and `F360_DIR` are **independent** — set them to any two folders (they need not
-share a parent). Run notebooks from the repo folder (so `os.getcwd()` resolves the repo) or set
-`HPN_DIR`. Scripts find the repo and `src/` via their own location. Scripts that require an
-input **fail fast with a clear message** naming the missing env var.
+share a parent). Notebooks resolve the repo root automatically whether run from the repo
+folder or from `notebooks/`; anything else, set `HPN_DIR`. Scripts anchor on the repo root
+via their own location (they live in `scripts/`), so they run from anywhere. Scripts that
+require an input **fail fast with a clear message** naming the missing env var.
 
 ## Layout
 ```
 Football-pressure-sequence-analysis/
-├─ s1_build_sequences.py        stage 1  (JSON → sequences/labels)
-├─ s2_hpn_construction.ipynb    stage 2  (HPN illustration)
-├─ s3_build_features.py         stage 3  (sequences → 19-feature table)
-├─ s4_model_training.ipynb      stage 4  (model comparison → 17-feat calibrated bundle)
-├─ s5_press_analysis.ipynb      stage 5  (season analysis: efficiency + style, any season)
-├─ train_calibrated.py          CLI mirror of stage 4 (headless retrain)
-├─ calibrate_season.py          per-season isotonic layer for a new season
-├─ apply_season.py              CLI mirror of stage 5 (headless season analysis)
-├─ compare_calibration.py       diagnostics (reliability vs baselines)
-├─ src/
-│   ├─ hpn_features.py          shared feature builder (30-col matrix; PRUNED_17 deployed subset)
-│   ├─ press_analysis.py        shared analysis library (lineage check, v_t, tables, figures)
-│   ├─ pressure_distance_v2.py  pressure model (logistic kernels, total pressure)
-│   └─ voronoi_pitch.py         pitch / Voronoi helpers (stage 2)
-├─ high_press_detection_spec.md detection algorithm spec
+├─ notebooks/                       the narrative pipeline
+│   ├─ s2_hpn_construction.ipynb      stage 2  (HPN illustration)
+│   ├─ s4_model_training.ipynb        stage 4  (model comparison → 17-feat calibrated bundle)
+│   └─ s5_press_analysis.ipynb        stage 5  (season analysis: efficiency + style, any season)
+├─ scripts/                         batch entry points
+│   ├─ s1_build_sequences.py          stage 1  (JSON → sequences/labels)
+│   ├─ s3_build_features.py           stage 3  (sequences → 19-feature table)
+│   ├─ train_calibrated.py            CLI mirror of stage 4 (headless retrain)
+│   ├─ calibrate_season.py            per-season isotonic layer for a new season
+│   ├─ apply_season.py                CLI mirror of stage 5 (headless season analysis)
+│   └─ compare_calibration.py         diagnostics (reliability vs baselines)
+├─ src/                             shared libraries (imported by notebooks AND scripts)
+│   ├─ hpn_features.py                feature builder (30-col matrix; PRUNED_17 deployed subset)
+│   ├─ press_analysis.py              analysis library (lineage check, v_t, tables, figures)
+│   ├─ pressure_distance_v2.py        pressure model (logistic kernels, total pressure)
+│   └─ voronoi_pitch.py               pitch / Voronoi helpers (stage 2)
+├─ docs/
+│   └─ high_press_detection_spec.md   detection algorithm spec
 ├─ requirements.txt
-├─ .gitignore                   ignores raw data, generated CSV/parquet/models/figures
+├─ .gitignore                       ignores raw data, generated CSV/parquet/models/figures
 └─ README.md
 ```
+Generated data (sequences/labels csv, feature parquet, model joblib, `analysis_out/`)
+lives in the repo **root**, git-ignored — the same defaults as before the reorganisation.
 
 ## Environment
 Python 3.10+ with: `pandas, scikit-learn>=1.6, xgboost, pyarrow, scipy, shapely, matplotlib,

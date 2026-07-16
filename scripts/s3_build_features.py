@@ -14,11 +14,12 @@ import numpy as np, pandas as pd
 warnings.filterwarnings("ignore")
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(_HERE, "src"))
+_REPO = os.path.dirname(_HERE)                       # repo root (scripts/ lives one level down)
+sys.path.insert(0, os.path.join(_REPO, "src"))
 from pressure_distance_v2 import sigmoid_pressure, PressureParams
 
 # Paths are configurable via environment variables (portable / GitHub-friendly).
-HPN          = _HERE
+HPN          = _REPO
 DATA_DIR     = os.environ.get("STATSBOMB_DIR", os.path.dirname(HPN))   # parent holds the raw JSON
 EVENTS_DIR   = os.environ.get("EVENTS_DIR",   os.path.join(DATA_DIR, "events", "events"))
 F360_DIR     = os.environ.get("F360_DIR",     os.path.join(DATA_DIR, "three_sixty", "three_sixty"))

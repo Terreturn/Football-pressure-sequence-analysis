@@ -46,7 +46,8 @@ from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 warnings.filterwarnings("ignore")
 
-HERE = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, os.path.join(HERE, "src"))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # repo root (scripts/ is one level down)
+sys.path.insert(0, os.path.join(HERE, "src"))
 from hpn_features import build_feature_matrix
 
 STATSBOMB_DIR = os.environ.get("STATSBOMB_DIR", os.path.dirname(HERE))
