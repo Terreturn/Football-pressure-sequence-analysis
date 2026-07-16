@@ -94,3 +94,8 @@ pip install -r requirements.txt
 shapely · matplotlib · joblib`, plus optional `adjustText` (nicer figure labels — the
 plots degrade gracefully without it). On Windows, prefix commands with
 `$env:PYTHONIOENCODING="utf-8"` so non-ASCII log output prints cleanly.
+
+## License
+
+[MIT](LICENSE). Note the StatsBomb data itself is licensed separately by StatsBomb —
+this license covers the code only.
