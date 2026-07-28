@@ -1,10 +1,11 @@
 numpy
 pandas
 scipy
-scikit-learn>=1.6   # FrozenEstimator (used by the isotonic calibration in s4) requires >= 1.6
+scikit-learn>=1.6
 xgboost
 pyarrow
 shapely
 matplotlib
 joblib
-adjustText          # optional label repulsion in apply_season.py's intensity figure (degrades gracefully)
+jupyter
+

@@ -1,122 +1,146 @@
-"""
-Shared HPN feature builder — used by the training / calibration / scoring
-scripts (train_calibrated.py, calibrate_season.py, apply_season.py,
-compare_calibration.py) so the feature matrix is constructed identically to the
-notebook's selected model (no train/serve skew).
+"""S3/V4 feature construction from user-supplied StatsBomb event and 360 data."""
+from __future__ import annotations
 
-Built matrix (30 cols = the notebook's ALL_FEATURES_BI). The DEPLOYED model uses a
-17-feature de-collinearised subset (PRUNED_17, notebook cell 25e), selected from these:
-  19 base carrier features (from the Stage-3 parquet)
-+  7 temporal first-difference features (Δt=1 within sequence)
-+  4 incoming-ball (ball_in) features
-
-The 7 temporal diffs are NaN on the first frame of every sequence (no t-1) and are
-LEFT as NaN — XGBoost handles them natively, exactly as the deployed model
-(hpn_xgb_outcome_calibrated.joblib: tuned, unweighted, isotonic-calibrated) was
-trained. Do not fill them, or you reintroduce a train/serve skew.
-"""
-import os
 import json
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
-BASE_FEATURES = [
-    "P_total", "carrier_enemy_density", "carrier_friendly_density",
-    "carrier_dist_boundary", "carrier_x_norm",
-    "n_pressers_on_carrier", "nearest_def_dist", "max_press_on_carrier",
-    "best_pass_w", "best_forward_pass_w", "n_open_pass", "mean_lane_openness",
-    "mean_recv_freedom", "min_recv_freedom", "n_press_on_attackers",
-    "total_press_on_attackers", "max_press_on_attacker", "frac_attackers_pressed",
-    "carrier_trap_w",
+from .hpn_network import P_EPS, PressureParams, build_hpn_network, frame_players, metric_xy, sigmoid_pressure
+
+
+V4_STATIC_FEATURES = [
+    "carrier_x_norm", "P_total", "effective_pressers", "mean_receiver_pressure",
+    "frac_receivers_pressed", "press_target_entropy", "weighted_angular_dispersion",
+    "carrier_boundary_pressure", "n_active_carrier_boundaries",
+    "shared_boundary_outlet_pressure", "best_forward_pass_w", "n_open_pass",
+    "escape_capacity", "ball_in_dist", "ball_in_angle_sin", "ball_in_angle_cos",
+]
+V4_TEMPORAL_FEATURES = [
+    "d_P_total_dt", "d_carrier_x_norm_dt", "d_carrier_boundary_pressure_dt",
+    "d_shared_boundary_outlet_pressure_dt", "d_escape_capacity_dt",
+]
+V4_ALL_FEATURES = V4_STATIC_FEATURES + V4_TEMPORAL_FEATURES
+V4_TOP_16 = [
+    "ball_in_dist", "ball_in_angle_cos", "n_open_pass", "d_carrier_x_norm_dt",
+    "carrier_x_norm", "best_forward_pass_w", "n_active_carrier_boundaries",
+    "press_target_entropy", "escape_capacity", "ball_in_angle_sin", "d_P_total_dt",
+    "mean_receiver_pressure", "P_total", "d_carrier_boundary_pressure_dt",
+    "effective_pressers", "weighted_angular_dispersion",
 ]
 
-DIFF_SRC = {
-    "d_P_total_dt": "P_total", "d_nearest_def_dist_dt": "nearest_def_dist",
-    "d_carrier_x_norm_dt": "carrier_x_norm", "d_best_pass_w_dt": "best_pass_w",
-    "d_carrier_trap_w_dt": "carrier_trap_w",
-    "d_frac_attackers_pressed_dt": "frac_attackers_pressed",
-}
-TEMPORAL = list(DIFF_SRC) + ["d_press_redistribution_dt"]
-BALLIN = ["ball_in_dx", "ball_in_dy", "ball_in_dist", "ball_in_angle"]
 
-# full built-matrix column order (30) — notebook's ALL_FEATURES_BI; deployed model subsets to 17 (PRUNED_17)
-FEATURES = BASE_FEATURES + TEMPORAL + BALLIN
-
-# ── DEPLOYED model input (17) — de-collinearised subset of FEATURES (notebook cell 25e) ──────
-# One representative kept per collinear cluster. Effect on the 2024/25 GroupKFold(5) CV:
-#   max VIF 12.3 -> 2.3, max |r| 0.95 -> 0.61, at a cost of dAUC -0.0035 (log-loss +0.0031).
-# This is what makes feature importance / VAEP driver attribution stable.
-# NOTE: anything that SCORES with a saved bundle should prefer bundle["features"] over this
-# constant, so the columns always follow the model that is actually loaded.
-DROP_COLLINEAR = [
-    "max_press_on_carrier", "nearest_def_dist", "n_pressers_on_carrier",  # -> P_total, carrier_enemy_density
-    "mean_lane_openness",                                                 # -> n_open_pass / best_pass_w
-    "n_press_on_attackers", "max_press_on_attacker", "min_recv_freedom",
-    "mean_recv_freedom", "frac_attackers_pressed",                        # -> total_press_on_attackers
-    "d_nearest_def_dist_dt", "d_press_redistribution_dt",                 # -> d_P_total_dt
-    "ball_in_dx", "ball_in_dy",                                           # -> polar (ball_in_dist, ball_in_angle)
-]
-PRUNED_17 = [f for f in FEATURES if f not in DROP_COLLINEAR]
-assert len(PRUNED_17) == 17, f"expected 17 deployed features, got {len(PRUNED_17)}"
-
-GK = ["match_id", "seq_id"]
+def _events_and_frames(events_dir: str | Path, three_sixty_dir: str | Path, match_id: str) -> tuple[list[dict], dict[str, dict]]:
+    with (Path(events_dir) / f"{match_id}.json").open(encoding="utf-8") as handle:
+        events = json.load(handle)
+    with (Path(three_sixty_dir) / f"{match_id}.json").open(encoding="utf-8") as handle:
+        frames = {frame["event_uuid"]: frame for frame in json.load(handle) if frame.get("freeze_frame")}
+    return events, frames
 
 
-def _build_temporal(dft):
-    """7 temporal first-difference features; first-of-sequence left as NaN (native to XGBoost)."""
-    for nf, base in DIFF_SRC.items():
-        dft[nf] = dft.groupby(GK)[base].diff()
-    dft["_redist"] = dft["P_total"] - dft["max_press_on_attacker"]
-    dft["d_press_redistribution_dt"] = dft.groupby(GK)["_redist"].diff()
-    dft.drop(columns="_redist", inplace=True)
-    return dft
+def _incoming_ball(events: list[dict], position: int, flip: bool) -> tuple[float, float, float]:
+    current = events[position].get("location")
+    if not current:
+        return np.nan, np.nan, np.nan
+    for prior in reversed(events[:position]):
+        if prior.get("possession") != events[position].get("possession") or not prior.get("location"):
+            continue
+        delta = metric_xy(*current, flip=flip) - metric_xy(*prior["location"], flip=flip)
+        angle = float(np.arctan2(delta[1], delta[0]))
+        return float(np.linalg.norm(delta)), float(np.sin(angle)), float(np.cos(angle))
+    return np.nan, np.nan, np.nan
 
 
-def _build_ballin(dft, labels_csv, events_dir):
-    """Incoming-ball direction (attack-normalised, leak-free)."""
-    lab = pd.read_csv(labels_csv)
-    lab["match_id"] = lab["match_id"].astype(str)
-    aid_map = lab.set_index(["match_id", "seq_id", "ev_pos"])["anchor_event_id"].to_dict()
-    dft["aid"] = [aid_map.get((m, s, e))
-                  for m, s, e in zip(dft.match_id, dft.seq_id, dft.ev_pos)]
-    bin_ = {}
-    for mid in dft["match_id"].unique():
-        with open(os.path.join(events_dir, f"{mid}.json"), encoding="utf-8") as f:
-            events = json.load(f)
-        EV = sorted(events, key=lambda e: e["index"])
-        pos = {e["index"]: i for i, e in enumerate(EV)}
-        by = {e["id"]: e for e in EV}
-        for a in dft.loc[dft.match_id == mid, "aid"].dropna().unique():
-            ev = by.get(a)
-            if ev is None or not ev.get("location"):
+def network_features(network: dict, events: list[dict], position: int, params: PressureParams = PressureParams()) -> dict:
+    xy, carrier_i = network["xy"], network["carrier_index"]
+    carrier = xy[carrier_i]
+    defenders = network["defenders"]
+    receivers = network["attackers"]
+    carrier_weights = np.array([
+        sigmoid_pressure(params.k_player, params.player_distance, np.linalg.norm(xy[index] - carrier))
+        for index in defenders
+    ])
+    active = carrier_weights[carrier_weights > P_EPS]
+    receiver_pressure = []
+    for receiver in receivers:
+        values = [sigmoid_pressure(params.k_player, params.player_distance, np.linalg.norm(xy[index] - xy[receiver])) for index in defenders]
+        receiver_pressure.append(float(sum(value for value in values if value > P_EPS)))
+    target_pressure = np.array([active.sum(), *receiver_pressure], dtype=float)
+    total = target_pressure.sum()
+    distribution = target_pressure[target_pressure > 0] / total if total else np.array([])
+    entropy = float(-(distribution * np.log(distribution)).sum() / np.log(max(2, len(target_pressure)))) if len(distribution) else 0.0
+    angles = np.array([np.arctan2(xy[index, 1] - carrier[1], xy[index, 0] - carrier[0]) for index in defenders])
+    directional = abs(np.sum(active * np.exp(1j * angles[carrier_weights > P_EPS])) / active.sum()) if len(active) else 1.0
+    carrier_boundary = [edge["p"] for edge in network["boundary_edges"] if edge["on_carrier"]]
+    receiver_boundary = []
+    for receiver in receivers:
+        values = [edge["p"] for edge in network["boundary_edges"] if edge["dst"] == receiver]
+        receiver_boundary.append(1.0 - np.prod([1.0 - value for value in values]) if values else 0.0)
+    pass_edges = network["pass_edges"]
+    forward = [edge["w"] for edge in pass_edges if xy[edge["dst"], 0] > carrier[0]]
+    escape = [edge["w"] for edge in pass_edges if edge["w"] >= .5]
+    flip = network["event"].get("team", {}).get("id") != network["event"].get("possession_team", {}).get("id")
+    distance, sine, cosine = _incoming_ball(events, position, flip)
+    return {
+        "carrier_x_norm": carrier[0] / 105.0,
+        "P_total": 1.0 - np.prod(1.0 - carrier_weights) if len(carrier_weights) else 0.0,
+        "effective_pressers": float(active.sum() ** 2 / np.sum(active ** 2)) if len(active) and np.sum(active ** 2) else 0.0,
+        "mean_receiver_pressure": float(np.mean(receiver_pressure)) if receiver_pressure else 0.0,
+        "frac_receivers_pressed": float(np.mean(np.asarray(receiver_pressure) > .5)) if receiver_pressure else 0.0,
+        "press_target_entropy": entropy,
+        "weighted_angular_dispersion": float(1.0 - directional),
+        "carrier_boundary_pressure": float(1.0 - np.prod([1.0 - value for value in carrier_boundary])) if carrier_boundary else 0.0,
+        "n_active_carrier_boundaries": len(carrier_boundary),
+        "shared_boundary_outlet_pressure": float(np.mean(receiver_boundary)) if receiver_boundary else 0.0,
+        "best_forward_pass_w": float(max(forward, default=0.0)),
+        "n_open_pass": int(sum(edge["w"] > .5 for edge in pass_edges)),
+        "escape_capacity": float(np.mean(escape)) if escape else 0.0,
+        "ball_in_dist": distance, "ball_in_angle_sin": sine, "ball_in_angle_cos": cosine,
+    }
+
+
+def add_temporal_features(table: pd.DataFrame) -> pd.DataFrame:
+    table = table.sort_values(["match_id", "seq_id", "ev_pos"]).copy()
+    sources = {
+        "d_P_total_dt": "P_total", "d_carrier_x_norm_dt": "carrier_x_norm",
+        "d_carrier_boundary_pressure_dt": "carrier_boundary_pressure",
+        "d_shared_boundary_outlet_pressure_dt": "shared_boundary_outlet_pressure",
+        "d_escape_capacity_dt": "escape_capacity",
+    }
+    for target, source in sources.items():
+        table[target] = table.groupby(["match_id", "seq_id"], sort=False)[source].diff()
+    return table
+
+
+def build_v4_feature_table(labels: pd.DataFrame, events_dir: str | Path, three_sixty_dir: str | Path, params: PressureParams = PressureParams()) -> pd.DataFrame:
+    rows = []
+    for match_id, group in labels.groupby(labels["match_id"].astype(str), sort=True):
+        events, frames = _events_and_frames(events_dir, three_sixty_dir, match_id)
+        by_id = {event["id"]: (position, event) for position, event in enumerate(events)}
+        for _, label in group.iterrows():
+            item = by_id.get(label["anchor_event_id"])
+            frame = frames.get(label["anchor_event_id"])
+            if item is None or frame is None:
                 continue
-            isd = ev["team"]["id"] != ev["possession_team"]["id"]
-            flip = (lambda x, y: (120 - x, 80 - y)) if isd else (lambda x, y: (x, y))
-            cx, cy = flip(ev["location"][0], ev["location"][1])
-            i0 = pos[ev["index"]]
-            pv = None
-            for k in range(i0 - 1, -1, -1):
-                pe = EV[k]
-                if pe.get("possession") != ev.get("possession"):
-                    break
-                if pe.get("location"):
-                    pv = pe
-                    break
-            if pv is None:
+            position, event = item
+            try:
+                values = network_features(build_hpn_network(event, frame, params), events, position, params)
+            except ValueError:
                 continue
-            px, py = flip(pv["location"][0], pv["location"][1])
-            dx = (cx - px) * 105 / 120
-            dy = (cy - py) * 68 / 80
-            bin_[a] = (dx, dy, float(np.hypot(dx, dy)), float(np.arctan2(dy, dx)))
-    bidf = pd.DataFrame([(a, *v) for a, v in bin_.items()], columns=["aid"] + BALLIN)
-    return dft.merge(bidf, on="aid", how="left")
+            rows.append({
+                "match_id": str(match_id), "seq_id": int(label["seq_id"]), "ev_pos": int(label["ev_pos"]),
+                "anchor_event_id": label["anchor_event_id"], "team_name": label.get("team_name"),
+                "outcome_tag": label["outcome_tag"], "terminal": bool(label["terminal"]), **values,
+            })
+    if not rows:
+        raise ValueError("No V4 feature rows could be built from the supplied labels and freeze frames")
+    return add_temporal_features(pd.DataFrame(rows))
 
 
-def build_feature_matrix(parquet_path, labels_csv, events_dir):
-    """Return the full frame with the 31 FEATURES + keys/labels, ordered by seq."""
-    df = pd.read_parquet(parquet_path)
-    df["match_id"] = df["match_id"].astype(str)
-    dft = df.sort_values(["match_id", "seq_id", "ev_pos"]).reset_index(drop=True)
-    dft = _build_temporal(dft)
-    dft = _build_ballin(dft, labels_csv, events_dir)
-    return dft
+def save_feature_table(table: pd.DataFrame, output_dir: str | Path) -> Path:
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / "v4_features.parquet"
+    table.to_parquet(path, index=False)
+    return path

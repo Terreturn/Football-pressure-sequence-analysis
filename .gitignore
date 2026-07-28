@@ -1,46 +1,14 @@
-# ── Python ──
 __pycache__/
-*.py[cod]
 .ipynb_checkpoints/
 .venv/
-venv/
-env/
-*.egg-info/
-
-# ── Raw StatsBomb data (licensed / large — keep OUTSIDE the repo; set STATSBOMB_DIR) ──
-events/
-three_sixty/
-three_sixty*/
-lineups/
-player_stats/
-*.zip
-
-# ── Large / generated artifacts (regenerate with the pipeline) ──
-# GNN graph cache — 1.9 GB, exceeds GitHub's file limit
-*.pt
-# trained models
-*.joblib
-# feature / sequence tables produced by s1 / s3 (any season suffix)
+*.py[cod]
+data/
+outputs/
+*.csv
 *.parquet
-all_high_pressure_sequences_v2.csv
-all_sequence_labels_v2.csv
-sequences.csv
-sequences_*.csv
-labels.csv
-labels_*.csv
-wc2026_*.csv
-# season-analysis outputs of apply_season.py / compare_calibration.py
-analysis_out/
-analysis_*/
-# local notebook snapshots (season-frozen copies of the main notebooks)
-*_ml_pipeline_20*.ipynb
-# standalone figure exports (the notebooks embed their figures inline already)
+*.joblib
 *.png
+*.log
+*.pid
+.env
 
-# ── OS ──
-.DS_Store
-Thumbs.db
-
-# NOTE: to ship the frozen canonical data so the ML notebook runs without the raw
-# StatsBomb JSON, force-add the files you want, e.g.:
-#   git add -f all_sequence_labels_v2.csv hpn_carrier_features.parquet hpn_xgb_outcome_ballin.joblib
