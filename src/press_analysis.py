@@ -4,25 +4,68 @@ from __future__ import annotations
 import pandas as pd
 
 
+def attach_pressing_team(scored: pd.DataFrame) -> pd.DataFrame:
+    """Attach the defending/pressing team to each possession-team anchor."""
+    data = scored.copy()
+    if "pressed_team" not in data:
+        data["pressed_team"] = data["team_name"]
+    if "press_team" in data and data["press_team"].notna().all():
+        return data
+    teams_by_match = data.groupby("match_id")["pressed_team"].unique()
+    invalid = teams_by_match.map(len).ne(2)
+    if invalid.any():
+        examples = ", ".join(map(str, teams_by_match.index[invalid][:5]))
+        raise ValueError(
+            "S5 requires exactly two teams per match to infer the pressing team; "
+            f"invalid matches include: {examples}"
+        )
+    opponents = teams_by_match.to_dict()
+    data["press_team"] = [
+        next(team for team in opponents[match_id] if team != pressed_team)
+        for match_id, pressed_team in zip(data["match_id"], data["pressed_team"])
+    ]
+    return data
+
+
 def attach_sequence_change(scored: pd.DataFrame) -> pd.DataFrame:
+    scored = attach_pressing_team(scored)
     scored = scored.sort_values(["match_id", "seq_id", "ev_pos"]).copy()
     scored["d_p_success"] = scored.groupby(["match_id", "seq_id"], sort=False)["p_success"].diff()
+    scored["d_p_fail"] = scored.groupby(["match_id", "seq_id"], sort=False)["p_fail"].diff()
+    scored["v_t"] = scored["d_p_success"] - scored["d_p_fail"]
+    scored["sequence_key"] = (
+        scored["match_id"].astype(str)
+        + "_"
+        + scored["seq_id"].astype(str)
+    )
     return scored
 
 
 def team_summary(scored: pd.DataFrame, min_sequences: int = 5) -> pd.DataFrame:
     data = attach_sequence_change(scored)
-    grouped = data.groupby("team_name", dropna=True)
+    grouped = data.groupby("press_team", dropna=True)
     summary = grouped.agg(
         n_frames=("p_success", "size"),
-        n_sequences=("seq_id", "nunique"),
         mean_success_probability=("p_success", "mean"),
-        press_efficiency=("d_p_success", "mean"),
         mean_pressure=("P_total", "mean"),
         mean_escape_capacity=("escape_capacity", "mean"),
         mean_boundary_pressure=("carrier_boundary_pressure", "mean"),
         mean_open_passes=("n_open_pass", "mean"),
-    ).reset_index()
+    )
+    sequences = data.groupby(
+        ["press_team", "sequence_key"],
+        as_index=False,
+    ).agg(
+        sequence_value=("v_t", "sum"),
+        final_outcome=("outcome_tag", "last"),
+    )
+    sequence_summary = sequences.groupby("press_team").agg(
+        n_sequences=("sequence_key", "size"),
+        press_efficiency=("sequence_value", "mean"),
+        regain_rate=("final_outcome", lambda values: (values == "success").mean()),
+    )
+    summary = summary.join(sequence_summary).reset_index()
+    summary = summary.rename(columns={"press_team": "team_name"})
     summary["eligible"] = summary["n_sequences"] >= min_sequences
     return summary.sort_values(["eligible", "press_efficiency"], ascending=[False, False])
 

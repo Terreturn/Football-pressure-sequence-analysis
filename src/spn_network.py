@@ -46,6 +46,75 @@ def total_player_pressure(point: np.ndarray, defenders: list[np.ndarray], params
     return float(1.0 - np.prod([1.0 - weight for weight in weights])) if weights else 0.0
 
 
+def boundary_distances(point: np.ndarray) -> dict[str, float | str]:
+    """Return metric distances from a point to all four pitch boundaries."""
+    x, y = map(float, point)
+    distances = {
+        "left": x,
+        "right": PITCH_L - x,
+        "bottom": y,
+        "top": PITCH_W - y,
+    }
+    nearest_side = min(distances, key=distances.__getitem__)
+    return {**distances, "nearest": distances[nearest_side], "which": nearest_side}
+
+
+def boundary_pressure(
+    point: np.ndarray,
+    params: PressureParams,
+    *,
+    use_all_lines: bool = False,
+) -> float:
+    """Return boundary pressure, using the nearest line by default."""
+    distances = boundary_distances(point)
+    if not use_all_lines:
+        return sigmoid_pressure(
+            params.k_boundary,
+            params.boundary_distance,
+            float(distances["nearest"]),
+        )
+    weights = [
+        sigmoid_pressure(params.k_boundary, params.boundary_distance, float(distances[side]))
+        for side in ("left", "right", "bottom", "top")
+    ]
+    return float(1.0 - np.prod([1.0 - weight for weight in weights]))
+
+
+def total_pressure(
+    point: np.ndarray,
+    defenders: list[np.ndarray],
+    params: PressureParams,
+    *,
+    include_boundary: bool = True,
+    use_all_lines: bool = False,
+) -> dict:
+    """Combine player and boundary pressure using the Stage-1 formulation."""
+    player_weights = [
+        sigmoid_pressure(params.k_player, params.player_distance, np.linalg.norm(point - defender))
+        for defender in defenders
+    ]
+    player_total = (
+        float(1.0 - np.prod([1.0 - weight for weight in player_weights]))
+        if player_weights
+        else 0.0
+    )
+    boundary = (
+        boundary_pressure(point, params, use_all_lines=use_all_lines)
+        if include_boundary
+        else 0.0
+    )
+    combined = float(
+        1.0 - np.prod([*[1.0 - weight for weight in player_weights], 1.0 - boundary])
+    )
+    return {
+        "P_total": round(combined, 4),
+        "P_players_only": round(player_total, 4),
+        "P_boundary": round(boundary, 4),
+        "p_individual": [round(weight, 4) for weight in player_weights],
+        "boundary_dist": boundary_distances(point),
+    }
+
+
 def metric_xy(x: float, y: float, flip: bool = False) -> np.ndarray:
     if flip:
         x, y = SB_L - x, SB_W - y
@@ -53,26 +122,55 @@ def metric_xy(x: float, y: float, flip: bool = False) -> np.ndarray:
 
 
 def frame_players(event: dict, frame: dict) -> tuple[list[dict], int | None]:
-    """Convert a StatsBomb frame into attack-normalised player nodes."""
+    """Convert a StatsBomb frame into attack-normalised player nodes.
+
+    The event location is authoritative for the carrier, matching the main
+    pipeline.  For user data without an event location, the freeze-frame actor
+    location remains a supported fallback.
+    """
     defending_event = event.get("team", {}).get("id") != event.get("possession_team", {}).get("id")
+    event_location = event.get("location")
+    event_carrier = (
+        metric_xy(*event_location, flip=defending_event)
+        if event_location is not None
+        else None
+    )
     nodes: list[dict] = []
     for player in frame.get("freeze_frame") or []:
         location = player.get("location")
         if location is None:
             continue
+        actor = bool(player.get("actor"))
         teammate = bool(player.get("teammate"))
-        role = ("defender" if teammate else "attacker") if defending_event else ("attacker" if teammate else "defender")
+        if actor:
+            role = "carrier"
+        elif defending_event:
+            role = "defender" if teammate else "attacker"
+        else:
+            role = "attacker" if teammate else "defender"
         nodes.append(
             {
-                "xy": metric_xy(location[0], location[1], flip=defending_event),
+                "xy": (
+                    event_carrier.copy()
+                    if actor and event_carrier is not None
+                    else metric_xy(location[0], location[1], flip=defending_event)
+                ),
                 "role": role,
                 "keeper": bool(player.get("keeper")),
-                "actor": bool(player.get("actor")),
+                "actor": actor,
             }
         )
     carrier = next((index for index, player in enumerate(nodes) if player["actor"]), None)
-    if carrier is None and event.get("location"):
-        nodes.insert(0, {"xy": metric_xy(*event["location"], flip=defending_event), "role": "attacker", "keeper": False, "actor": True})
+    if carrier is None and event_carrier is not None:
+        nodes.insert(
+            0,
+            {
+                "xy": event_carrier,
+                "role": "carrier",
+                "keeper": False,
+                "actor": True,
+            },
+        )
         carrier = 0
     return nodes, carrier
 
@@ -115,6 +213,29 @@ def _safe_polygon(points: np.ndarray):
     return polygon.buffer(0) if not polygon.is_valid else polygon
 
 
+def _visible_pitch_area(frame: dict, *, flip: bool):
+    """Return the valid camera-visible pitch polygon when supplied.
+
+    StatsBomb 360 normally supplies ``visible_area``.  User-provided data may
+    omit it, in which case callers deliberately fall back to pitch-only
+    clipping rather than rejecting an otherwise usable freeze frame.
+    """
+    raw = frame.get("visible_area") or []
+    if len(raw) < 6 or len(raw) % 2:
+        return None
+    try:
+        coordinates = np.asarray(raw, dtype=float).reshape(-1, 2)
+        metric = np.vstack(
+            [metric_xy(x, y, flip=flip) for x, y in coordinates]
+        )
+        visible = _safe_polygon(metric).intersection(
+            box(0.0, 0.0, PITCH_L, PITCH_W)
+        )
+    except (TypeError, ValueError):
+        return None
+    return None if visible.is_empty else visible
+
+
 def _boundary_edges(point: np.ndarray, params: PressureParams, allowed: set[str] | None = None) -> list[dict]:
     x, y = map(float, point)
     candidates = [
@@ -142,7 +263,7 @@ def _perpendicular(point: np.ndarray, start: np.ndarray, end: np.ndarray) -> tup
     return float(np.linalg.norm(point - (start + t * vector))), t
 
 
-def build_hpn_network(event: dict, frame: dict, params: PressureParams = PressureParams()) -> dict:
+def build_spn_network(event: dict, frame: dict, params: PressureParams = PressureParams()) -> dict:
     """Build all node, area, and edge families for a single freeze frame."""
     players, carrier_index = frame_players(event, frame)
     if carrier_index is None or len(players) < 4:
@@ -162,22 +283,40 @@ def build_hpn_network(event: dict, frame: dict, params: PressureParams = Pressur
     except Exception:
         triangulation = None
 
+    pitch = box(0.0, 0.0, PITCH_L, PITCH_W)
+    defending_event = event.get("team", {}).get("id") != event.get("possession_team", {}).get("id")
+    visible_area = _visible_pitch_area(frame, flip=defending_event)
+    area_clip = visible_area if visible_area is not None else pitch
     areas = []
     try:
         regions, vertices = _finite_voronoi(Voronoi(xy))
-        pitch = box(0.0, 0.0, PITCH_L, PITCH_W)
         for region in regions:
-            areas.append(_safe_polygon(vertices[region]).intersection(pitch))
+            areas.append(
+                _safe_polygon(vertices[region])
+                .intersection(area_clip)
+                .intersection(pitch)
+            )
     except Exception:
         areas = [None] * len(players)
 
     pressure_edges = []
     targets = [carrier_index] + attackers
     for defender in defenders:
+        active = []
         for target in targets:
             p = sigmoid_pressure(params.k_player, params.player_distance, np.linalg.norm(xy[defender] - xy[target]))
             if p > P_EPS:
-                pressure_edges.append({"src": defender, "dst": target, "p": p})
+                active.append((target, p))
+        total = sum(p for _, p in active)
+        pressure_edges.extend(
+            {
+                "src": defender,
+                "dst": target,
+                "p": p,
+                "w": p / total,
+            }
+            for target, p in active
+        )
 
     lane_k = math.pi / (math.sqrt(3.0) * 0.6)
     pass_edges = []
@@ -218,6 +357,7 @@ def build_hpn_network(event: dict, frame: dict, params: PressureParams = Pressur
         "defenders": defenders,
         "topology": topology,
         "areas": areas,
+        "visible_area": visible_area,
         "pressure_edges": pressure_edges,
         "pass_edges": pass_edges,
         "boundary_edges": boundary_edges,
@@ -234,7 +374,13 @@ def _match_data(events_dir: str | Path, three_sixty_dir: str | Path, match_id: s
     return events, frames
 
 
-def _network_for_anchor(row: pd.Series, events_dir: str | Path, three_sixty_dir: str | Path, cache: dict) -> dict | None:
+def _network_for_anchor(
+    row: pd.Series,
+    events_dir: str | Path,
+    three_sixty_dir: str | Path,
+    cache: dict,
+    params: PressureParams,
+) -> dict | None:
     match_id = str(row["match_id"])
     if match_id not in cache:
         cache[match_id] = _match_data(events_dir, three_sixty_dir, match_id)
@@ -245,18 +391,26 @@ def _network_for_anchor(row: pd.Series, events_dir: str | Path, three_sixty_dir:
     if event is None or frame is None:
         return None
     try:
-        return build_hpn_network(event, frame)
+        return build_spn_network(event, frame, params=params)
     except ValueError:
         return None
 
 
-def sample_network_frame(labels: pd.DataFrame, events_dir: str | Path, three_sixty_dir: str | Path, random_state: int = 42) -> dict:
+def sample_network_frame(
+    labels: pd.DataFrame,
+    events_dir: str | Path,
+    three_sixty_dir: str | Path,
+    random_state: int = 42,
+    params: PressureParams = PressureParams(),
+) -> dict:
     """Choose a reproducible random informative network from the user's own labels."""
     if labels.empty:
         raise ValueError("labels is empty")
     rng, cache, candidates = np.random.default_rng(random_state), {}, []
     for index in rng.permutation(len(labels)):
-        network = _network_for_anchor(labels.iloc[int(index)], events_dir, three_sixty_dir, cache)
+        network = _network_for_anchor(
+            labels.iloc[int(index)], events_dir, three_sixty_dir, cache, params
+        )
         if network and len(network["players"]) >= 10 and network["pressure_edges"] and network["pass_edges"]:
             candidates.append(network)
     if not candidates:
@@ -271,11 +425,20 @@ def sample_network_sequence(
     max_frames: int = 5,
     min_frames: int = 3,
     random_state: int = 42,
+    params: PressureParams = PressureParams(),
 ) -> list[dict]:
     """Choose a reproducible random valid sequence; fall back to the longest one."""
     cache, valid = {}, []
     for _, group in labels.sort_values(["match_id", "seq_id", "ev_pos"]).groupby(["match_id", "seq_id"]):
-        networks = [network for _, row in group.iterrows() if (network := _network_for_anchor(row, events_dir, three_sixty_dir, cache))]
+        networks = [
+            network
+            for _, row in group.iterrows()
+            if (
+                network := _network_for_anchor(
+                    row, events_dir, three_sixty_dir, cache, params
+                )
+            )
+        ]
         if networks:
             valid.append(networks)
     eligible = [item for item in valid if len(item) >= min_frames] or valid
