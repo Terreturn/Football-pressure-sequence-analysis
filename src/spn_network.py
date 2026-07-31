@@ -263,7 +263,7 @@ def _perpendicular(point: np.ndarray, start: np.ndarray, end: np.ndarray) -> tup
     return float(np.linalg.norm(point - (start + t * vector))), t
 
 
-def build_hpn_network(event: dict, frame: dict, params: PressureParams = PressureParams()) -> dict:
+def build_spn_network(event: dict, frame: dict, params: PressureParams = PressureParams()) -> dict:
     """Build all node, area, and edge families for a single freeze frame."""
     players, carrier_index = frame_players(event, frame)
     if carrier_index is None or len(players) < 4:
@@ -391,7 +391,7 @@ def _network_for_anchor(
     if event is None or frame is None:
         return None
     try:
-        return build_hpn_network(event, frame, params=params)
+        return build_spn_network(event, frame, params=params)
     except ValueError:
         return None
 

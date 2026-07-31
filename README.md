@@ -1,6 +1,6 @@
-# HPN V4 — High-Press Analysis
+# Structural Pressure Network (SPN) — High-Press Analysis
 
-This is a code-only, notebook-first implementation of the HPN V4 workflow.
+This is a code-only, notebook-first implementation of the Structural Pressure Network (SPN) workflow.
 It contains no raw data, derived tables, trained models, or season-level results.
 
 ## Quick start
@@ -32,14 +32,14 @@ Set paths before opening the notebooks:
 
     $env:EVENTS_DIR = "D:\my-data\events"
     $env:F360_DIR = "D:\my-data\three-sixty"
-    $env:OUTPUT_DIR = "D:\my-hpn-output"
+    $env:OUTPUT_DIR = "D:\my-spn-output"
 
 Run the notebooks in order: S1 detects and labels sequences, S2 selects random
-valid networks from that output, S3 builds V4 features, S4 guides selection,
+valid networks from that output, S3 builds SPN features, S4 guides selection,
 training and robustness, and S5 scores and profiles the teams present in the
 user's data.
 
-The supplied V4-top-15 schema is a methodological default. Models, metrics and
+The supplied SPN-top-15 schema is a methodological default. Models, metrics and
 team rankings are always rebuilt from the user-provided data.
 
 ## Defaults, calibration, and user choices
@@ -50,7 +50,7 @@ editable:
 - Pressure definition: player distance/spread `6.4 m / 2.2 m`, with boundary
   distance/spread `3.2 m / 1.1 m`; Stage 1 uses a high-pressure threshold of
   `0.65`, own-half limit `x < 60`, and a maximum sequence gap of `5 s`.
-- Features: the proposed model table starts from the final `V4-top-15` schema.
+- Features: the proposed model table starts from the final `SPN-top-15` schema.
   Users may exclude or replace features after inspecting the diagnostics.
 - Model: unweighted XGBoost is supplied with the final-main M1 parameters
   (778 trees, depth 7, learning rate 0.02327, and the persisted regularisation
@@ -78,7 +78,7 @@ fallback. Voronoi cells are clipped to the supplied StatsBomb `visible_area`;
 if a custom 360 feed omits or cannot parse that optional polygon, pitch-only
 clipping is used instead.
 
-For strict reproduction of the main V4 table, the S3 feature
+For strict reproduction of the main SPN table, the S3 feature
 `carrier_x_norm` is the one deliberate legacy exception: it is read from the
 attack-normalised freeze-frame actor and clipped to the pitch range. A feature
 row without a freeze-frame actor is therefore not retained. Event files are
@@ -88,7 +88,7 @@ possession boundary.
 Pressure parameters may be supplied explicitly:
 
 ```python
-from src.hpn_network import PressureParams, build_hpn_network
+from src.spn_network import PressureParams, build_spn_network
 
 params = PressureParams(
     player_distance=6.4,
@@ -96,7 +96,7 @@ params = PressureParams(
     boundary_distance=3.2,
     boundary_sd=1.1,
 )
-network = build_hpn_network(event, frame, params=params)
+network = build_spn_network(event, frame, params=params)
 ```
 
 The displayed values are the main-pipeline defaults. Public users may change
@@ -138,9 +138,9 @@ sequences, labels = build_sequences(
 ## Modules
 
 - data_pipeline.py: paired-data loading, detection and labels.
-- hpn_network.py: pressure network construction and S2 figures.
-- hpn_features.py: S3/V4 feature construction.
-- hpn_model.py: grouped modelling, calibration and robustness helpers.
+- spn_network.py: pressure network construction and S2 figures.
+- spn_features.py: S3/SPN feature construction.
+- spn_model.py: grouped modelling, calibration and robustness helpers.
 - press_analysis.py: dynamic S5 summaries.
 
 S5 treats the team in possession at each labelled anchor as the pressed team

@@ -10,7 +10,7 @@ PUBLIC_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PUBLIC_ROOT))
 
 from src.data_pipeline import SequenceConfig, event_is_high_press
-from src.hpn_network import PressureParams
+from src.spn_network import PressureParams
 
 
 CONFIG = SequenceConfig()

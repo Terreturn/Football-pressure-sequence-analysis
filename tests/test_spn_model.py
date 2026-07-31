@@ -11,8 +11,8 @@ import pandas as pd
 PUBLIC_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PUBLIC_ROOT))
 
-from src.hpn_model import (  # noqa: E402
-    FINAL_V4_XGB_PARAMS,
+from src.spn_model import (  # noqa: E402
+    FINAL_SPN_XGB_PARAMS,
     apply_isotonic,
     fit_isotonic,
     grouped_calibration_comparison,
@@ -24,7 +24,7 @@ class PublicModelTests(unittest.TestCase):
     def test_xgboost_defaults_match_final_main_contract(self) -> None:
         model = make_model("xgb")
         parameters = model.get_params()
-        for name, value in FINAL_V4_XGB_PARAMS.items():
+        for name, value in FINAL_SPN_XGB_PARAMS.items():
             self.assertEqual(parameters[name], value)
 
     def test_isotonic_preserves_the_probability_simplex(self) -> None:

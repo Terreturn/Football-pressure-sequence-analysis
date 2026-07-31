@@ -13,7 +13,7 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
-from .hpn_network import PressureParams, metric_xy, total_pressure
+from .spn_network import PressureParams, metric_xy, total_pressure
 
 
 HP_EVENT_TYPES = {"Pass", "Carry", "Miscontrol", "Dribble"}

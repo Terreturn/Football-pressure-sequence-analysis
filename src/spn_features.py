@@ -1,4 +1,4 @@
-"""S3/V4 feature construction from user-supplied StatsBomb event and 360 data."""
+"""S3/SPN feature construction from user-supplied StatsBomb event and 360 data."""
 from __future__ import annotations
 
 import json
@@ -7,29 +7,29 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .hpn_network import P_EPS, PressureParams, build_hpn_network, frame_players, metric_xy, sigmoid_pressure
+from .spn_network import P_EPS, PressureParams, build_spn_network, frame_players, metric_xy, sigmoid_pressure
 
 
-V4_STATIC_FEATURES = [
+SPN_STATIC_FEATURES = [
     "carrier_x_norm", "P_total", "effective_pressers", "mean_receiver_pressure",
     "frac_receivers_pressed", "press_target_entropy", "weighted_angular_dispersion",
     "carrier_boundary_pressure", "n_active_carrier_boundaries",
     "shared_boundary_outlet_pressure", "best_forward_pass_w", "n_open_pass",
     "escape_capacity", "ball_in_dist", "ball_in_angle_sin", "ball_in_angle_cos",
 ]
-V4_TEMPORAL_FEATURES = [
+SPN_TEMPORAL_FEATURES = [
     "d_P_total_dt", "d_carrier_x_norm_dt", "d_carrier_boundary_pressure_dt",
     "d_shared_boundary_outlet_pressure_dt", "d_escape_capacity_dt",
 ]
-V4_ALL_FEATURES = V4_STATIC_FEATURES + V4_TEMPORAL_FEATURES
-V4_SELECTED_FEATURES = [
+SPN_ALL_FEATURES = SPN_STATIC_FEATURES + SPN_TEMPORAL_FEATURES
+SPN_SELECTED_FEATURES = [
     "ball_in_dist", "ball_in_angle_cos", "d_carrier_x_norm_dt",
     "carrier_x_norm", "best_forward_pass_w", "P_total", "n_open_pass",
     "press_target_entropy", "n_active_carrier_boundaries", "escape_capacity",
     "ball_in_angle_sin", "d_P_total_dt", "mean_receiver_pressure",
     "d_carrier_boundary_pressure_dt", "weighted_angular_dispersion",
 ]
-V4_TOP_15 = V4_SELECTED_FEATURES
+SPN_TOP_15 = SPN_SELECTED_FEATURES
 
 
 def _events_and_frames(events_dir: str | Path, three_sixty_dir: str | Path, match_id: str) -> tuple[list[dict], dict[str, dict]]:
@@ -56,7 +56,7 @@ def _incoming_ball(events: list[dict], position: int, flip: bool) -> tuple[float
 
 
 def _legacy_carrier_x_norm(event: dict, frame: dict) -> float | None:
-    """Return the main V4 carrier-x source: the clipped freeze-frame actor."""
+    """Return the main SPN carrier-x source: the clipped freeze-frame actor."""
     defending_event = (
         event.get("team", {}).get("id")
         != event.get("possession_team", {}).get("id")
@@ -89,7 +89,7 @@ def network_features(
     # V3-derived read-outs use the strict edge threshold.
     active = carrier_weights[carrier_weights > P_EPS]
     receiver_pressure = []
-    # V4 supplement read-outs use the inclusive threshold in the main version.
+    # SPN supplement read-outs use the inclusive threshold in the main version.
     receiver_pressure_inclusive = []
     for receiver in receivers:
         values = [sigmoid_pressure(params.k_player, params.player_distance, np.linalg.norm(xy[index] - xy[receiver])) for index in defenders]
@@ -121,7 +121,7 @@ def network_features(
         else float(carrier[0] / 105.0)
     )
     if carrier_x_norm is None:
-        raise ValueError("The main V4 carrier_x_norm requires a freeze-frame actor")
+        raise ValueError("The main SPN carrier_x_norm requires a freeze-frame actor")
     return {
         "carrier_x_norm": carrier_x_norm,
         "P_total": 1.0 - np.prod(1.0 - carrier_weights) if len(carrier_weights) else 0.0,
@@ -153,7 +153,7 @@ def add_temporal_features(table: pd.DataFrame) -> pd.DataFrame:
     return table
 
 
-def build_v4_feature_table(labels: pd.DataFrame, events_dir: str | Path, three_sixty_dir: str | Path, params: PressureParams = PressureParams()) -> pd.DataFrame:
+def build_spn_feature_table(labels: pd.DataFrame, events_dir: str | Path, three_sixty_dir: str | Path, params: PressureParams = PressureParams()) -> pd.DataFrame:
     rows = []
     for match_id, group in labels.groupby(labels["match_id"].astype(str), sort=True):
         events, frames = _events_and_frames(events_dir, three_sixty_dir, match_id)
@@ -171,7 +171,7 @@ def build_v4_feature_table(labels: pd.DataFrame, events_dir: str | Path, three_s
             position, event = item
             try:
                 values = network_features(
-                    build_hpn_network(event, frame, params),
+                    build_spn_network(event, frame, params),
                     events,
                     position,
                     params,
@@ -191,13 +191,13 @@ def build_v4_feature_table(labels: pd.DataFrame, events_dir: str | Path, three_s
                 "outcome_tag": label["outcome_tag"], "terminal": bool(label["terminal"]), **values,
             })
     if not rows:
-        raise ValueError("No V4 feature rows could be built from the supplied labels and freeze frames")
+        raise ValueError("No SPN feature rows could be built from the supplied labels and freeze frames")
     return add_temporal_features(pd.DataFrame(rows))
 
 
 def save_feature_table(table: pd.DataFrame, output_dir: str | Path) -> Path:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    path = output_dir / "v4_features.parquet"
+    path = output_dir / "spn_features.parquet"
     table.to_parquet(path, index=False)
     return path

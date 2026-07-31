@@ -1,4 +1,4 @@
-"""Grouped V4 model selection, calibration, scoring, and robustness helpers."""
+"""Grouped SPN model selection, calibration, scoring, and robustness helpers."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -20,7 +20,7 @@ from xgboost import XGBClassifier
 
 CLASS_NAMES = ["fail", "neutral", "success"]
 DEFAULT_RANDOM_STATE = 202405
-FINAL_V4_XGB_PARAMS = {
+FINAL_SPN_XGB_PARAMS = {
     "n_estimators": 778,
     "max_depth": 7,
     "learning_rate": 0.02327096042208491,
@@ -30,7 +30,7 @@ FINAL_V4_XGB_PARAMS = {
     "gamma": 1.4416405196512205,
     "reg_lambda": 3.80847296998745,
 }
-FINAL_V4_LOGISTIC_C = 0.007498942093324558
+FINAL_SPN_LOGISTIC_C = 0.007498942093324558
 
 
 def feature_diagnostics(table: pd.DataFrame, features: list[str]) -> dict[str, pd.DataFrame]:
@@ -98,13 +98,13 @@ def make_model(
             (
                 "model",
                 LogisticRegression(
-                    C=FINAL_V4_LOGISTIC_C,
+                    C=FINAL_SPN_LOGISTIC_C,
                     max_iter=4000,
                     random_state=random_state,
                 ),
             ),
         ])
-    parameters = {**FINAL_V4_XGB_PARAMS, **(xgb_params or {})}
+    parameters = {**FINAL_SPN_XGB_PARAMS, **(xgb_params or {})}
     return XGBClassifier(
         objective="multi:softprob",
         num_class=3,

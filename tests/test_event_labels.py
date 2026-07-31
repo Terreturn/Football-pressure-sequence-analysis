@@ -16,7 +16,7 @@ from src.data_pipeline import (  # noqa: E402
     build_sequences,
     classify_anchor,
 )
-from src.hpn_network import PressureParams  # noqa: E402
+from src.spn_network import PressureParams  # noqa: E402
 
 
 PARAMS = PressureParams()

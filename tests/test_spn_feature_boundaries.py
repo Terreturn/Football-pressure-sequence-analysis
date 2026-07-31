@@ -13,13 +13,13 @@ import numpy as np
 PUBLIC_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PUBLIC_ROOT))
 
-from src.hpn_features import (  # noqa: E402
+from src.spn_features import (  # noqa: E402
     _events_and_frames,
     _incoming_ball,
     _legacy_carrier_x_norm,
     network_features,
 )
-from src.hpn_network import PressureParams, metric_xy  # noqa: E402
+from src.spn_network import PressureParams, metric_xy  # noqa: E402
 
 
 def event(
@@ -137,7 +137,7 @@ class MainFeatureBoundaryTests(unittest.TestCase):
         }
         params = PressureParams(player_distance=1.0)
 
-        with patch("src.hpn_features.P_EPS", 0.5):
+        with patch("src.spn_features.P_EPS", 0.5):
             values = network_features(
                 network,
                 [anchor],

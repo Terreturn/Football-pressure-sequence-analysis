@@ -10,10 +10,10 @@ import numpy as np
 PUBLIC_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PUBLIC_ROOT))
 
-from src.hpn_network import (  # noqa: E402
+from src.spn_network import (  # noqa: E402
     PITCH_L,
     PITCH_W,
-    build_hpn_network,
+    build_spn_network,
     frame_players,
     metric_xy,
 )
@@ -80,10 +80,10 @@ def frame(
     return output
 
 
-class HPNNetworkConstructionTests(unittest.TestCase):
+class SPNNetworkConstructionTests(unittest.TestCase):
     def test_event_location_is_authoritative_for_carrier_node(self) -> None:
         source_event = event([20.0, 40.0])
-        network = build_hpn_network(
+        network = build_spn_network(
             source_event,
             frame(
                 [90.0, 70.0],
@@ -97,7 +97,7 @@ class HPNNetworkConstructionTests(unittest.TestCase):
         )
 
     def test_voronoi_areas_are_clipped_to_camera_visible_pitch(self) -> None:
-        network = build_hpn_network(
+        network = build_spn_network(
             event([20.0, 40.0]),
             frame(
                 [20.0, 40.0],
@@ -114,7 +114,7 @@ class HPNNetworkConstructionTests(unittest.TestCase):
         self.assertIsNotNone(network["visible_area"])
 
     def test_pressure_edges_include_within_defender_normalisation(self) -> None:
-        network = build_hpn_network(
+        network = build_spn_network(
             event([20.0, 40.0]),
             frame([20.0, 40.0]),
         )
@@ -151,12 +151,12 @@ class HPNNetworkConstructionTests(unittest.TestCase):
                 if index != carrier and player["actor"] is False and source_frame["freeze_frame"][index]["teammate"]
             )
         )
-        network = build_hpn_network(source_event, source_frame)
+        network = build_spn_network(source_event, source_frame)
         self.assertNotIn(network["carrier_index"], network["defenders"])
 
     def test_user_data_without_optional_geometry_uses_safe_fallbacks(self) -> None:
         source_frame = frame([20.0, 40.0])
-        network = build_hpn_network(event(None), source_frame)
+        network = build_spn_network(event(None), source_frame)
         np.testing.assert_allclose(
             network["xy"][network["carrier_index"]],
             metric_xy(20.0, 40.0),
