@@ -64,6 +64,30 @@ def frame(
 
 
 class HighPressDetectionTests(unittest.TestCase):
+    def test_each_core_anchor_type_is_accepted(self) -> None:
+        carrier = [20.0, 20.0]
+        for event_type in ("Pass", "Carry", "Dribble"):
+            with self.subTest(event_type=event_type):
+                result = event_is_high_press(
+                    event("core-anchor", carrier, event_type=event_type),
+                    frame("core-anchor", carrier, [([21.0, 20.0], False)]),
+                    CONFIG,
+                    PARAMS,
+                )
+                self.assertIsNotNone(result)
+
+    def test_non_core_action_types_are_excluded(self) -> None:
+        carrier = [20.0, 20.0]
+        for event_type in ("Miscontrol", "Shot"):
+            with self.subTest(event_type=event_type):
+                result = event_is_high_press(
+                    event("non-core", carrier, event_type=event_type),
+                    frame("non-core", carrier, [([21.0, 20.0], False)]),
+                    CONFIG,
+                    PARAMS,
+                )
+                self.assertIsNone(result)
+
     def test_nearest_boundary_pressure_is_included(self) -> None:
         carrier = [20.0, 1.0]
         defender = [carrier[0] + PARAMS.player_distance * 120.0 / 105.0, carrier[1]]
@@ -104,9 +128,9 @@ class HighPressDetectionTests(unittest.TestCase):
         self.assertAlmostEqual(result["carrier_x_m"], 17.5)
         self.assertEqual(result["actor_x_norm"], 20.0)
 
-    def test_non_possession_event_does_not_count_actor_as_defender(self) -> None:
+    def test_non_possession_event_is_excluded(self) -> None:
         carrier = [90.0, 40.0]
-        distant_opponent = [70.0, 40.0]
+        nearby_opponent = [91.0, 40.0]
         result = event_is_high_press(
             event(
                 "defending-event",
@@ -114,7 +138,7 @@ class HighPressDetectionTests(unittest.TestCase):
                 team_id=2,
                 possession_team_id=1,
             ),
-            frame("defending-event", carrier, [(distant_opponent, False)]),
+            frame("defending-event", carrier, [(nearby_opponent, False)]),
             CONFIG,
             PARAMS,
         )
