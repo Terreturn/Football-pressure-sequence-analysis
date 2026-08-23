@@ -1,0 +1,73 @@
+{
+  "model_id": "current-spn-top19-xgb-raw",
+  "model_version": "1.0.0",
+  "probability_layer": "raw",
+  "artifact_format": "xgboost-ubj",
+  "artifact_file": "model.ubj",
+  "artifact_sha256": "de3621bc74152a3b2cb14d263f6ea83b039812e1b0f868aeeee83c7a0b788807",
+  "exported_with_xgboost": "3.3.0",
+  "class_names": [
+    "fail",
+    "neutral",
+    "success"
+  ],
+  "features": [
+    "n_active_carrier_boundaries",
+    "carrier_x_norm",
+    "press_target_entropy",
+    "ball_in_angle_cos",
+    "d_carrier_x_norm_dt",
+    "mean_receiver_pressure",
+    "pressure_mean_focus_entropy",
+    "P_total",
+    "n_open_pass",
+    "effective_pressers",
+    "best_forward_pass_w",
+    "d_P_total_dt",
+    "vor_carrier_area_share",
+    "weighted_angular_dispersion",
+    "d_carrier_boundary_pressure_dt",
+    "ball_in_dist",
+    "vor_forward_receiver_area_share",
+    "d_vor_carrier_area_share",
+    "d_vor_forward_receiver_area_share"
+  ],
+  "pressure": {
+    "player_distance": 6.4,
+    "player_sd": 2.2,
+    "boundary_distance": 3.2,
+    "boundary_sd": 1.1,
+    "lane_distance": 1.2,
+    "lane_sd": 0.6,
+    "pass_decay_m": 18.0,
+    "pass_open_threshold": 0.5,
+    "edge_epsilon": 0.05
+  },
+  "sequence": {
+    "pressure_threshold": 0.65,
+    "own_half_x": 60.0,
+    "max_gap_seconds": 5.0,
+    "dribble_location_tolerance": 0.2,
+    "dribble_time_tolerance_seconds": 0.01,
+    "pre_context_max_raw_events": 10,
+    "pre_context_same_location_tolerance": 0.2
+  },
+  "labels": {
+    "min_displacement_m": 3.0,
+    "long_switch_m": 25.0,
+    "clearance_high_pass_m": 35.0,
+    "receiver_relief_threshold": 0.65,
+    "forward_angle_deg": 60.0,
+    "backward_angle_deg": 120.0
+  },
+  "coordinate_system": {
+    "input_provider": "StatsBomb",
+    "input_pitch": [120.0, 80.0],
+    "metric_pitch": [105.0, 68.0]
+  },
+  "training_contract": {
+    "model": "M1 sequence-weighted XGBoost",
+    "feature_schema": "SPN_weighted_top_19",
+    "weighting": "each pressure sequence contributes total training weight one"
+  }
+}

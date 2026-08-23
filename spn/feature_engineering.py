@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from .spn_network import P_EPS, PressureParams, build_spn_network, frame_players, metric_xy, sigmoid_pressure
+from ._network import PressureParams, build_spn_network, frame_players, metric_xy, sigmoid_pressure
 
 
 SPN_BASE_STATIC_FEATURES = [
@@ -41,15 +42,6 @@ SPN_TEMPORAL_SOURCES = {
     "d_vor_forward_receiver_area_share": "vor_forward_receiver_area_share",
 }
 SPN_ALL_FEATURES = SPN_STATIC_FEATURES + SPN_TEMPORAL_FEATURES
-SPN_SELECTED_FEATURES = [
-    "ball_in_dist", "ball_in_angle_cos", "d_carrier_x_norm_dt",
-    "carrier_x_norm", "best_forward_pass_w", "P_total", "n_open_pass",
-    "press_target_entropy", "escape_capacity",
-    "ball_in_angle_sin", "d_P_total_dt", "mean_receiver_pressure",
-    "d_carrier_boundary_pressure_dt", "weighted_angular_dispersion",
-    *SPN_NETWORK_STATIC_FEATURES,
-    *SPN_NETWORK_TEMPORAL_FEATURES,
-]
 SEQUENCE_CONTEXT_LOCATION_TOLERANCE = 0.2
 
 
@@ -240,22 +232,24 @@ def network_features(
         for index in defenders
     ])
     # V3-derived read-outs use the strict edge threshold.
-    active = carrier_weights[carrier_weights > P_EPS]
+    active = carrier_weights[carrier_weights > params.edge_epsilon]
     receiver_pressure = []
     # SPN supplement read-outs use the inclusive threshold in the main version.
     receiver_pressure_inclusive = []
     for receiver in receivers:
         values = [sigmoid_pressure(params.k_player, params.player_distance, np.linalg.norm(xy[index] - xy[receiver])) for index in defenders]
-        receiver_pressure.append(float(sum(value for value in values if value > P_EPS)))
+        receiver_pressure.append(
+            float(sum(value for value in values if value > params.edge_epsilon))
+        )
         receiver_pressure_inclusive.append(
-            float(sum(value for value in values if value >= P_EPS))
+            float(sum(value for value in values if value >= params.edge_epsilon))
         )
     target_pressure = np.array([active.sum(), *receiver_pressure], dtype=float)
     total = target_pressure.sum()
     distribution = target_pressure[target_pressure > 0] / total if total else np.array([])
     entropy = float(-(distribution * np.log(distribution)).sum() / np.log(max(2, len(target_pressure)))) if len(distribution) else 0.0
     angles = np.array([np.arctan2(xy[index, 1] - carrier[1], xy[index, 0] - carrier[0]) for index in defenders])
-    angular_mask = carrier_weights >= P_EPS
+    angular_mask = carrier_weights >= params.edge_epsilon
     angular_weights = carrier_weights[angular_mask]
     directional = abs(np.sum(angular_weights * np.exp(1j * angles[angular_mask])) / angular_weights.sum()) if len(angular_weights) else 1.0
     carrier_boundary = [edge["p"] for edge in network["boundary_edges"] if edge["on_carrier"]]
@@ -265,7 +259,11 @@ def network_features(
         receiver_boundary.append(1.0 - np.prod([1.0 - value for value in values]) if values else 0.0)
     pass_edges = network["pass_edges"]
     forward = [edge["w"] for edge in pass_edges if xy[edge["dst"], 0] > carrier[0]]
-    escape = [edge["w"] for edge in pass_edges if edge["w"] >= .5]
+    escape = [
+        edge["w"]
+        for edge in pass_edges
+        if edge["w"] >= params.pass_open_threshold
+    ]
     flip = network["event"].get("team", {}).get("id") != network["event"].get("possession_team", {}).get("id")
     distance, sine, cosine = (
         _incoming_ball(events, position, flip)
@@ -296,7 +294,9 @@ def network_features(
         "n_active_carrier_boundaries": len(carrier_boundary),
         "shared_boundary_outlet_pressure": float(np.mean(receiver_boundary)) if receiver_boundary else 0.0,
         "best_forward_pass_w": float(max(forward, default=0.0)),
-        "n_open_pass": int(sum(edge["w"] > .5 for edge in pass_edges)),
+        "n_open_pass": int(
+            sum(edge["w"] > params.pass_open_threshold for edge in pass_edges)
+        ),
         "escape_capacity": float(np.mean(escape)) if escape else 0.0,
         "ball_in_dist": distance, "ball_in_angle_sin": sine, "ball_in_angle_cos": cosine,
         **structural,
@@ -545,9 +545,11 @@ def _context_actor_event(event: dict) -> dict:
 def build_spn_feature_table(
     sequences: pd.DataFrame,
     labels: pd.DataFrame,
-    events_dir: str | Path,
-    three_sixty_dir: str | Path,
+    events_dir: str | Path | None = None,
+    three_sixty_dir: str | Path | None = None,
     params: PressureParams = PressureParams(),
+    *,
+    match_data: Any | None = None,
 ) -> pd.DataFrame:
     """Build all anchor SPNs and join final-output regression targets.
 
@@ -600,9 +602,30 @@ def build_spn_feature_table(
     matched_keys = anchor_keys.merge(target_keys, on=label_key, how="inner")
     if len(anchor_keys) != len(target_keys) or len(matched_keys) != len(anchor_keys):
         raise ValueError("labels must contain exactly one row for every sequence anchor")
+    expected_sequence_sizes = (
+        anchor_keys.groupby(["match_id", "seq_id"], sort=False)
+        .size()
+        .rename("expected_anchor_count")
+        .reset_index()
+    )
     rows = []
     for match_id, group in anchors.groupby("match_id", sort=True):
-        events, frames = _events_and_frames(events_dir, three_sixty_dir, match_id)
+        if match_data is not None:
+            if str(match_id) != str(match_data.match_id):
+                raise ValueError(
+                    "in-memory feature construction accepts exactly one match_id"
+                )
+            events, frames = match_data.events, match_data.frames
+        else:
+            if events_dir is None or three_sixty_dir is None:
+                raise ValueError(
+                    "events_dir and three_sixty_dir are required without match_data"
+                )
+            events, frames = _events_and_frames(
+                events_dir,
+                three_sixty_dir,
+                match_id,
+            )
         by_id = {event["id"]: (position, event) for position, event in enumerate(events)}
         sequence_incoming = _sequence_context_incoming(group, by_id)
         match_teams = sorted({
@@ -755,7 +778,70 @@ def build_spn_feature_table(
         raise ValueError(
             "No sequence anchors matched between sequences and event labels"
         )
-    return labelled_rows.sort_values(["match_id", "seq_id", "ev_pos"]).reset_index(drop=True)
+    # A missing actor/frame or an invalid network can make a single anchor
+    # unmodellable.  Keeping the remaining anchors would silently reduce that
+    # sequence's Stage-1 total training weight below one.  S3 therefore keeps
+    # only sequences for which every S1 anchor produced a feature row; weights
+    # are never renormalised and no feature row is fabricated.
+    emitted_sequence_sizes = (
+        labelled_rows.groupby(["match_id", "seq_id"], sort=False)
+        .size()
+        .rename("emitted_anchor_count")
+        .reset_index()
+    )
+    completeness = expected_sequence_sizes.merge(
+        emitted_sequence_sizes,
+        on=["match_id", "seq_id"],
+        how="left",
+    )
+    completeness["emitted_anchor_count"] = (
+        completeness["emitted_anchor_count"].fillna(0).astype(int)
+    )
+    incomplete = completeness.loc[
+        completeness["expected_anchor_count"]
+        != completeness["emitted_anchor_count"],
+        ["match_id", "seq_id", "expected_anchor_count", "emitted_anchor_count"],
+    ]
+    complete_keys = completeness.loc[
+        completeness["expected_anchor_count"]
+        == completeness["emitted_anchor_count"],
+        ["match_id", "seq_id"],
+    ]
+    labelled_rows = labelled_rows.merge(
+        complete_keys,
+        on=["match_id", "seq_id"],
+        how="inner",
+        validate="many_to_one",
+    )
+    if labelled_rows.empty:
+        raise ValueError("No anchor-complete sequences remain after S3 construction")
+    result = labelled_rows.sort_values(
+        ["match_id", "seq_id", "ev_pos"]
+    ).reset_index(drop=True)
+    result.attrs["s3_completeness_audit"] = {
+        "expected_anchors": int(len(anchor_keys)),
+        "emitted_anchors_before_sequence_filter": int(len(anchor_features)),
+        "retained_anchors": int(len(result)),
+        "expected_sequences": int(len(completeness)),
+        "excluded_incomplete_sequences": int(len(incomplete)),
+        "excluded_incomplete_matches": int(incomplete["match_id"].nunique()),
+    }
+    return result
+
+
+def build_feature_table(
+    match_data: Any,
+    sequences: pd.DataFrame,
+    labels: pd.DataFrame,
+    params: PressureParams = PressureParams(),
+) -> pd.DataFrame:
+    """Build the complete SPN feature table for one in-memory match."""
+    return build_spn_feature_table(
+        sequences,
+        labels,
+        params=params,
+        match_data=match_data,
+    )
 
 
 def save_feature_table(table: pd.DataFrame, output_dir: str | Path) -> Path:

@@ -13,7 +13,7 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
-from .spn_network import PressureParams, metric_xy, total_pressure
+from ._network import PressureParams, metric_xy, total_pressure
 
 
 # A high-pressure sequence is made only of deliberate, in-possession ball
@@ -161,6 +161,83 @@ class LabelConfig:
         "Smother",
         "Keeper Sweeper",
         "Claim",
+    )
+
+
+@dataclass(frozen=True)
+class MatchData:
+    """One normalised StatsBomb event/360 match held fully in memory."""
+
+    match_id: str
+    events: list[dict]
+    frames: dict[str, dict]
+    raw_frame_count: int
+    warnings: tuple[str, ...] = ()
+
+
+def _json_records(source: str | Path | list[dict], label: str) -> list[dict]:
+    if isinstance(source, list):
+        records = source
+    else:
+        path = Path(source)
+        if not path.is_file():
+            raise FileNotFoundError(f"missing {label} JSON: {path}")
+        records = _read_json(path)
+    if not isinstance(records, list) or not all(isinstance(row, dict) for row in records):
+        raise ValueError(f"{label} JSON must be an array of objects")
+    return records
+
+
+def load_match_data(
+    events_source: str | Path | list[dict],
+    three_sixty_source: str | Path | list[dict],
+    match_id: str | None = None,
+) -> MatchData:
+    """Load and validate one StatsBomb-schema event/360 pair.
+
+    Sources may be file paths or already-decoded JSON arrays.  A file stem is
+    used as the match identifier when ``match_id`` is omitted.
+    """
+    raw_events = _json_records(events_source, "events")
+    raw_frames = _json_records(three_sixty_source, "three-sixty")
+    if not raw_events:
+        raise ValueError("events JSON is empty")
+    event_ids = [event.get("id") for event in raw_events]
+    if any(not event_id for event_id in event_ids):
+        raise ValueError("every event must contain a non-empty id")
+    if len(event_ids) != len(set(event_ids)):
+        raise ValueError("event ids must be unique within a match")
+    if any("index" not in event for event in raw_events):
+        raise ValueError("every event must contain its native index")
+    try:
+        events = sorted(raw_events, key=lambda event: int(event["index"]))
+    except (TypeError, ValueError) as error:
+        raise ValueError("event indexes must be integer-like") from error
+    resolved_match_id = str(match_id or "")
+    if not resolved_match_id and not isinstance(events_source, list):
+        resolved_match_id = Path(events_source).stem
+    if not resolved_match_id:
+        raise ValueError("match_id is required when events are supplied in memory")
+    frames = frame_index(raw_frames)
+    warnings: list[str] = []
+    frame_event_ids = {
+        str(frame.get("event_uuid"))
+        for frame in raw_frames
+        if frame.get("event_uuid")
+    }
+    unknown_frames = frame_event_ids - set(map(str, event_ids))
+    if unknown_frames:
+        warnings.append(
+            f"ignored {len(unknown_frames)} 360 records whose event_uuid was absent from events"
+        )
+    if not frames:
+        warnings.append("no usable freeze frames were indexed")
+    return MatchData(
+        match_id=resolved_match_id,
+        events=events,
+        frames=frames,
+        raw_frame_count=len(raw_frames),
+        warnings=tuple(warnings),
     )
 
 
@@ -2336,6 +2413,127 @@ def label_sequence_anchors(
             )
         labels.append({**row, **core, **target, **action, **transition})
     return labels
+
+
+def build_sequences_from_match(
+    match: MatchData,
+    config: SequenceConfig = SequenceConfig(),
+    params: PressureParams = PressureParams(),
+    label_config: LabelConfig = LabelConfig(),
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Detect, group, and label pressure anchors for one in-memory match."""
+    events = match.events
+    frames = match.frames
+    match_id = match.match_id
+    team_ids = {
+        event.get("team", {}).get("id")
+        for event in events
+        if event.get("team", {}).get("id") is not None
+    }
+    detected_sequences = detect_sequences(
+        events,
+        frames,
+        config,
+        params,
+        label_config,
+    )
+    detected_anchor_ids = {
+        events[position].get("id", "")
+        for detected_sequence in detected_sequences
+        for position, _ in detected_sequence
+    }
+    sequence_rows: list[dict] = []
+    label_rows: list[dict] = []
+    for sequence_id, sequence in enumerate(detected_sequences, start=1):
+        current_sequence_rows: list[dict] = []
+        first_position, first_metrics = sequence[0]
+        pre_context = resolve_pre_sequence_context(
+            events,
+            first_position,
+            [
+                float(first_metrics["actor_x_norm"]),
+                float(first_metrics["actor_y"]),
+            ],
+            frames,
+            config,
+            anchor_event_ids=detected_anchor_ids,
+        )
+        for sequence_position, (event_position, metrics) in enumerate(sequence):
+            event = events[event_position]
+            event_type = event.get("type", {}).get("name")
+            row = {
+                "match_id": str(match_id),
+                "seq_id": sequence_id,
+                "ev_pos": sequence_position,
+                "anchor_event_id": event["id"],
+                "raw_event_position": event_position,
+                "period": event.get("period"),
+                "timestamp": event.get("timestamp"),
+                "pressed_team_id": (event.get("team") or {}).get("id"),
+                "pressed_team_name": (event.get("team") or {}).get("name"),
+                "team_name": event.get("team", {}).get("name"),
+                "possession_team_name": event.get("possession_team", {}).get("name"),
+                "event_type": event_type,
+                **metrics,
+                **(
+                    pre_context
+                    if sequence_position == 0
+                    else _empty_pre_context("not_sequence_start")
+                ),
+            }
+            sequence_rows.append(row)
+            current_sequence_rows.append(row)
+        outcome = resolve_sequence_output(
+            events,
+            sequence,
+            frames,
+            sequence_config=config,
+            params=params,
+            config=label_config,
+            team_ids=team_ids,
+        )
+        press_team_id = outcome["press_team_id"]
+        press_team_name = next(
+            (
+                (event.get("team") or {}).get("name")
+                for event in events
+                if (event.get("team") or {}).get("id") == press_team_id
+            ),
+            None,
+        )
+        for label in label_sequence_anchors(
+            events,
+            sequence,
+            current_sequence_rows,
+            outcome,
+            config,
+            label_config,
+        ):
+            label_rows.append(
+                {
+                    **label,
+                    **outcome,
+                    **{
+                        key: label[key]
+                        for key in (
+                            "event_state",
+                            "state",
+                            "outcome_tag",
+                            "terminal",
+                            "censored",
+                            "event_label_source",
+                            "is_sequence_last",
+                            "resolution_event_id",
+                            "resolution_event_type",
+                            "resolution_team_id",
+                            "resolution_id",
+                            "resolution_pp",
+                        )
+                    },
+                    "press_team_name": press_team_name,
+                }
+            )
+    return pd.DataFrame(sequence_rows), pd.DataFrame(label_rows)
 
 
 def build_sequences(

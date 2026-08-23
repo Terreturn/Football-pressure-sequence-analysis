@@ -1,11 +1,5 @@
 numpy
 pandas
 scipy
-scikit-learn>=1.6
-xgboost
-pyarrow
 shapely
-matplotlib
-joblib
-jupyter
-pytest>=8.0
+xgboost>=3.0,<4

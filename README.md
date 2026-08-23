@@ -1,154 +1,162 @@
-# Structural Pressure Network (SPN) — High-Press Analysis
+# Structural Pressure Network: public inference pipeline
 
-This is a code-only, notebook-first implementation of the Structural Pressure Network (SPN) workflow.
-It contains no raw data, derived tables, trained models, or season-level results.
+This repository contains the compact inference-only release of the Structural
+Pressure Network (SPN). It accepts paired StatsBomb-schema event and 360 JSON,
+detects high-pressure sequences, assigns realised sequence labels, builds the
+current top-19 SPN representation, and scores every complete anchor with the
+frozen sequence-weighted XGBoost model.
 
-## Quick start
+It does not contain training, feature selection, calibration fitting,
+ablation, robustness, notebooks, season rankings, or raw match data.
 
-From the repository root, create an environment with Python 3.10+ and install
-the public dependencies:
+## Files
+
+```text
+.
+├── run.py
+├── requirements.txt
+├── model/
+│   ├── model.ubj
+│   └── model_config.json
+└── spn/
+    ├── data_processing.py
+    ├── feature_engineering.py
+    ├── _network.py
+    ├── model.py
+    └── output.py
+```
+
+- `data_processing.py`: JSON loading, pressure-event detection, semantic
+  sequence construction, and sequence/anchor labels.
+- `feature_engineering.py`: SPN, Voronoi, Delaunay, passing, boundary, incoming
+  ball, and temporal features.
+- `_network.py`: private geometry and network-construction implementation used
+  by the two data-processing modules.
+- `model.py`: native XGBoost artifact loading, hash verification, feature
+  contract checks, and raw three-class probabilities.
+- `output.py`: compact JSON and CSV outputs.
+
+## Environment
+
+Python 3.10 or newer is recommended.
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-python -m pytest -q tests
-jupyter lab
 ```
-
-The test suite uses synthetic StatsBomb-schema fixtures only; it does not
-download, require, or expose match data. In Jupyter, open and run the notebooks
-in the S1-to-S5 order below.
 
 ## Input
 
-Provide two directories containing StatsBomb-schema JSON files with the same
-match identifiers:
+The input is a complete paired StatsBomb-schema match:
 
-    EVENTS_DIR/<match_id>.json
-    F360_DIR/<match_id>.json
-
-Set paths before opening the notebooks:
-
-    $env:EVENTS_DIR = "D:\my-data\events"
-    $env:F360_DIR = "D:\my-data\three-sixty"
-    $env:OUTPUT_DIR = "D:\my-spn-output"
-
-Run the notebooks in order: S1 detects and labels sequences, S2 selects random
-valid networks from that output, S3 builds SPN features, S4 guides selection,
-training and robustness, and S5 scores and profiles the teams present in the
-user's data.
-
-The supplied SPN-top-15 schema is a methodological default. Models, metrics and
-team rankings are always rebuilt from the user-provided data.
-
-## Defaults, calibration, and user choices
-
-The public notebooks expose the final-main defaults while keeping each choice
-editable:
-
-- Pressure definition: player distance/spread `6.4 m / 2.2 m`, with boundary
-  distance/spread `3.2 m / 1.1 m`; Stage 1 uses a high-pressure threshold of
-  `0.65`, own-half limit `x < 60`, and a maximum sequence gap of `5 s`.
-- Features: the proposed model table starts from the final `SPN-top-15` schema.
-  Users may exclude or replace features after inspecting the diagnostics.
-- Model: unweighted XGBoost is supplied with the final-main M1 parameters
-  (778 trees, depth 7, learning rate 0.02327, and the persisted regularisation
-  settings). S4 also compares multinomial logistic regression and a
-  class-balanced XGBoost alternative on the user's matches.
-- Calibration: `raw` is the default portable probability layer. S4 provides a
-  nested, match-grouped OOF comparison of raw and isotonic probabilities. Use
-  isotonic only if that comparison improves the chosen probability score for
-  the user's labelled data; the fitted bundle records its calibration scope.
-
-When changing pressure parameters, use the same `PRESSURE_PARAMS` values in
-S1, S2, and S3. The public workflow deliberately exposes these objects rather
-than hard-coding a competition, season, or research choice.
-
-## Data and parameter flexibility
-
-The default network definitions and parameter values reproduce the main
-implementation. Paths, match identifiers, event identifiers, and competition
-or season names are never hard-coded, so the workflow can be run on any paired
-StatsBomb-schema event and 360 directories.
-
-For S2, `event["location"]` is the authoritative carrier position. If a custom
-event feed omits that field, the freeze-frame actor location is used as a
-fallback. Voronoi cells are clipped to the supplied StatsBomb `visible_area`;
-if a custom 360 feed omits or cannot parse that optional polygon, pitch-only
-clipping is used instead.
-
-For strict reproduction of the main SPN table, the S3 feature
-`carrier_x_norm` is the one deliberate legacy exception: it is read from the
-attack-normalised freeze-frame actor and clipped to the pitch range. A feature
-row without a freeze-frame actor is therefore not retained. Event files are
-sorted by their native `index`, and incoming-ball lookup stops at the first
-possession boundary.
-
-Pressure parameters may be supplied explicitly:
-
-```python
-from src.spn_network import PressureParams, build_spn_network
-
-params = PressureParams(
-    player_distance=6.4,
-    player_sd=2.2,
-    boundary_distance=3.2,
-    boundary_sd=1.1,
-)
-network = build_spn_network(event, frame, params=params)
+```text
+events/123456.json
+three_sixty/123456.json
 ```
 
-The displayed values are the main-pipeline defaults. Public users may change
-them for their own data or sensitivity analysis. When strict reproduction of
-the main specification is required, the boundary distance and spread should
-remain one half of their corresponding player values.
+The event file must be a JSON array. Events require their native `id`, `index`,
+`period`, `timestamp`, `type`, team/possession fields, and the usual
+type-specific payload such as `pass.end_location` or `carry.end_location`.
 
-Stage-1 labels use the same anchor-level outcome state machine as the main
-implementation. Later terminal events may provide evidence for assigning an
-anchor's realised outcome, but they are neither labelled anchors nor prediction
-targets. High-pressure `Miscontrol` events remain part of a sequence but are not
-labelled anchors; labels are assigned to `Pass`, `Carry`, and `Dribble`
-candidates (and to `Shot` if it is admitted by a custom detector).
-The state machine follows the native StatsBomb possession transition and
-records `state`, `outcome_tag`, `terminal`, direction fields, resolution fields,
-and the `censored` indicator. The model modules retain only
-`success`/`neutral`/`fail`, so censored anchors are not used for fitting.
+The 360 file must be a JSON array containing `event_uuid` and `freeze_frame`.
+Each visible player uses StatsBomb `location`, `teammate`, `actor`, and `keeper`
+fields. `visible_area` is optional; pitch-only clipping is used when it cannot
+be parsed.
 
-The published defaults reproduce the main label specification, while numerical
-cutoffs remain configurable:
+This release supports any match, competition, or season that follows those
+semantics. A different provider's JSON must first be mapped to the StatsBomb
+event/360 contract. Version 1 is an offline completed-match pipeline, not a
+live streaming service.
 
-```python
-from src.data_pipeline import LabelConfig, SequenceConfig, build_sequences
+## Run one match
 
-labels_config = LabelConfig(
-    min_displacement_m=3.0,
-    long_switch_m=25.0,
-    clearance_high_pass_m=35.0,
-    receiver_relief_threshold=0.65,
-)
-sequences, labels = build_sequences(
-    EVENTS_DIR,
-    F360_DIR,
-    SequenceConfig(),
-    label_config=labels_config,
-)
+```powershell
+python run.py `
+  --events events\123456.json `
+  --three-sixty three_sixty\123456.json `
+  --output output\123456
 ```
 
-## Modules
+`--match-id` is optional. Without it, the event filename stem is used.
 
-- data_pipeline.py: paired-data loading, detection and labels.
-- spn_network.py: pressure network construction and S2 figures.
-- spn_features.py: S3/SPN feature construction.
-- spn_model.py: grouped modelling, calibration and robustness helpers.
-- press_analysis.py: dynamic S5 summaries.
+## Run a directory
 
-S5 treats the team in possession at each labelled anchor as the pressed team
-and attributes the pressure to its opponent. Sequence identifiers are scoped
-by both `match_id` and `seq_id`, so repeated sequence numbers across matches do
-not collapse team totals. The public bundle defaults to raw probabilities;
-isotonic should be enabled only after grouped validation on the user's own
-labelled data, and its fit-scope metadata should be retained with the bundle.
+Files are paired by their common filename stem.
 
-StatsBomb data remains subject to its own licence; the MIT licence in this
-repository covers code only.
+```powershell
+python run.py `
+  --events-dir events `
+  --three-sixty-dir three_sixty `
+  --output output
+```
+
+## Python use
+
+```python
+from run import run_pipeline
+
+result = run_pipeline(
+    events_source="events/123456.json",
+    three_sixty_source="three_sixty/123456.json",
+    output_dir="output/123456",
+)
+
+print(result["status"])
+print(result["audit"])
+```
+
+The two sources may also be already-decoded Python lists. In that case a
+`match_id` must be supplied.
+
+## Output
+
+Each match writes:
+
+```text
+output/123456/
+├── result.json
+├── predictions.csv
+└── sequences.csv
+```
+
+`predictions.csv` contains one row per modelled anchor, including:
+
+```text
+match_id, seq_id, ev_pos, anchor_event_id,
+period, timestamp, event_type, pressed_team, press_team,
+observed_outcome, censored, evaluation_eligible,
+p_fail, p_neutral, p_success, predicted_class, confidence,
+model_id, model_version
+```
+
+`sequences.csv` contains one compact row per detected pressure sequence.
+`result.json` combines model metadata, processing audit counts, sequence rows,
+and anchor predictions in a machine-readable envelope.
+
+If no high-pressure sequence is found, this is not treated as malformed input:
+the pipeline writes a valid result with `status="no_sequences"` and empty
+tables. Missing or unusable frames are never fabricated. If one anchor in a
+sequence cannot be represented, the complete sequence is excluded and counted
+in the audit.
+
+## Frozen model contract
+
+The public model is `current-spn-top19-xgb-raw`:
+
+- M1 sequence-weighted XGBoost;
+- raw `fail / neutral / success` probabilities;
+- 19 features in the exact order recorded in `model/model_config.json`;
+- native XGBoost UBJ artifact with a verified SHA-256 hash.
+
+The model configuration also freezes pressure, sequence, label, pitch, passing,
+boundary, and edge-threshold parameters. These values are part of the learned
+representation. Changing them while retaining the supplied frozen model is not
+supported; parameter research requires rebuilding features and retraining.
+
+Observed labels are returned for retrospective analysis but are not passed to
+the model. Only the 19 fields named by the model manifest are used to produce
+probabilities.
+
+StatsBomb data remains subject to its own licence. The MIT licence here covers
+the released code and model-pipeline packaging only.
