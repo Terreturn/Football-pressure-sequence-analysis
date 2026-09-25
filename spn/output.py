@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,34 @@ import numpy as np
 import pandas as pd
 
 from .model import KEY_COLUMNS, SPNModel
+
+
+def save_features(
+    features: pd.DataFrame | None,
+    model: SPNModel,
+    output_dir: str | Path,
+) -> None:
+    """Export only anchor keys and the frozen model inputs for downstream plots."""
+    target = Path(output_dir)
+    target.mkdir(parents=True, exist_ok=True)
+    columns = [*KEY_COLUMNS, *model.features]
+    table = pd.DataFrame(columns=columns) if features is None else features[columns]
+    path = target / "features.csv"
+    table.to_csv(path, index=False)
+    metadata = {
+        "schema_version": "spn-features/1.0",
+        "model_id": model.config["model_id"],
+        "model_version": model.config["model_version"],
+        "probability_layer": model.config["probability_layer"],
+        "model_artifact_sha256": model.config["artifact_sha256"],
+        "model_config_sha256": hashlib.sha256(model.config_path.read_bytes()).hexdigest(),
+        "features": model.features,
+        "rows": len(table),
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
+    (target / "features_metadata.json").write_text(
+        json.dumps(metadata, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
 
 
 EMPTY_PREDICTION_COLUMNS = KEY_COLUMNS + [

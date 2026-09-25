@@ -1,20 +1,25 @@
-# Structural Pressure Network: public inference pipeline
+# Structural Pressure Network: public inference and plots
 
-This repository contains the compact inference-only release of the Structural
+This repository contains the compact public release of the Structural
 Pressure Network (SPN). It accepts paired StatsBomb-schema event and 360 JSON,
 detects high-pressure sequences, assigns realised sequence labels, builds the
 current top-19 SPN representation, and scores every complete anchor with the
 frozen sequence-weighted XGBoost model.
 
-It does not contain training, feature selection, calibration fitting,
-ablation, robustness, notebooks, season rankings, or raw match data.
+It also provides optional feature-importance, feature-change/transition-value,
+and team pressure-intensity/efficiency plots. It does not contain training,
+feature selection, calibration fitting, notebooks, official league standings,
+match results, or raw match data. The World Cup efficiency/win-rate plot is not
+included.
 
 ## Files
 
 ```text
 .
 ├── run.py
+├── plot.py
 ├── requirements.txt
+├── requirements-plots.txt
 ├── model/
 │   ├── model.ubj
 │   └── model_config.json
@@ -23,7 +28,9 @@ ablation, robustness, notebooks, season rankings, or raw match data.
     ├── feature_engineering.py
     ├── _network.py
     ├── model.py
-    └── output.py
+    ├── output.py
+    ├── analysis.py
+    └── plotting.py
 ```
 
 - `data_processing.py`: JSON loading, pressure-event detection, semantic
@@ -35,6 +42,9 @@ ablation, robustness, notebooks, season rankings, or raw match data.
 - `model.py`: native XGBoost artifact loading, hash verification, feature
   contract checks, and raw three-class probabilities.
 - `output.py`: compact JSON and CSV outputs.
+- `analysis.py`: sequence valuation, team aggregation, feature-change
+  associations and bootstrap intervals using public outputs.
+- `plotting.py`: the three plots and PNG/JPEG/PDF/SVG export; no bottom notes.
 
 ## Environment
 
@@ -106,6 +116,9 @@ print(result["status"])
 print(result["audit"])
 ```
 
+Pass `export_features=True` to also write the inputs needed by the data-dependent
+plots. The existing return structure remains unchanged.
+
 The two sources may also be already-decoded Python lists. In that case a
 `match_id` must be supplied.
 
@@ -140,6 +153,99 @@ tables. Missing or unusable frames are never fabricated. If one anchor in a
 sequence cannot be represented, the complete sequence is excluded and counted
 in the audit.
 
+## Generate the three plots
+
+Install the optional plotting dependencies:
+
+```bash
+python -m pip install -r requirements-plots.txt
+```
+
+Feature importance uses the frozen model alone and does not require match data:
+
+```bash
+python plot.py --plots importance --output plots/importance
+```
+
+For all three plots, first export features during the normal inference run:
+
+```bash
+python run.py --events-dir events --three-sixty-dir three_sixty --output output --export-features
+python plot.py --input output --output plots
+```
+
+Single-match inference supports the same `--export-features` flag. Each match
+adds `features.csv` and `features_metadata.json`; the original three output
+files keep their existing schemas. Feature CSVs contain the four anchor keys
+and exactly the 19 model features, without observed outcomes or future label
+evidence. Metadata records model/config hashes and the feature file hash.
+
+`plot.py` accepts a single-match directory, a batch directory, or a predictions
+CSV. It finds `features.csv` beside each predictions file. For older outputs,
+provide `--features path/to/features.csv` or re-run inference with
+`--export-features`; probabilities alone cannot recover pressure or geometric
+features. An explicit feature CSV must contain the four anchor keys and all
+19 model features. CSV identifiers are read as strings.
+
+Select individual plots with `--plots importance drivers teams`, and formats
+with `--formats png jpeg pdf svg`. The default is all three plots in all four
+formats. Output is grouped into `PNG/`, `JPEG/`, `PDF/`, `SVG/`, and `tables/`.
+`manifest.json` records model identity, input coverage, definitions, numerical
+audits, output hashes, and any skipped analyses. Use `--overwrite` to replace
+existing outputs.
+
+Python entry point:
+
+```python
+from spn.plotting import generate_plots
+
+report = generate_plots("plots", input_source="output")
+```
+
+### What the plots measure
+
+- **Feature importance:** normalized mean split gain from the frozen top-19
+  XGBoost model; it remains the same when only the input matches change.
+- **Feature changes and v_t:** Pearson associations between changes in the 14
+  static model features and the next-anchor change in `p_success - p_fail`,
+  plus the joint linear-regression R-squared. It is data-dependent descriptive
+  association, not a second model-only importance measure. The five temporal
+  features are not differenced again. Constant-feature correlations are left
+  undefined in the table and omitted from bars.
+- **Team intensity and efficiency:** teams are taken from the output's
+  `press_team` field, without a fixed team list, season table, or match count.
+  Intensity is the sum of `P_total` across eligible anchors divided by matches
+  in which that team has eligible sequences. Efficiency is the team mean
+  sequence value relative to the sequence-weighted mean of the input dataset,
+  multiplied by 100. Bubble area represents evaluated sequences and colour
+  represents their observed success rate.
+
+The sequence value is the sum of forward probability-value changes plus
+`terminal_weight` times the terminal component. That component is the last
+`p_success` for success, zero for neutral, and minus the last `p_fail` for fail.
+Each eligible sequence has equal weight. Censored and incomplete sequences are
+excluded. No additional calibration or training weights are applied.
+
+Defaults: terminal weight 0.5, 2,000 bootstrap iterations, random seed 20260824,
+300 DPI. Override these with `--terminal-weight`, `--bootstrap-iterations`,
+`--random-state`, and `--dpi`. Intervals resample matches within each team and
+recompute the dataset mean. Match counts and the zero reference refer to the
+supplied eligible data, not automatically to the entire season. Matches with
+no eligible sequence are excluded from this intensity denominator.
+
+Valid empty/censored input and insufficient transitions produce explicit
+`skipped` entries instead of invented values. Malformed input, mixed model
+identities, mismatched features/probabilities, or incomplete exported sequences
+raise errors. When `sequences.csv` is available, its anchor counts are checked
+to detect truncated sequence tails. Standalone CSV users must supply complete
+sequences; continuity alone cannot prove that the final anchor is present.
+
+To run the plotting/analysis tests after installing plotting dependencies:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
 ## Frozen model contract
 
 The public model is `current-spn-top19-xgb-raw`:
@@ -148,6 +254,8 @@ The public model is `current-spn-top19-xgb-raw`:
 - raw `fail / neutral / success` probabilities;
 - 19 features in the exact order recorded in `model/model_config.json`;
 - native XGBoost UBJ artifact with a verified SHA-256 hash.
+
+Raw probabilities support general cross-season inference and ranking; absolute season-level success rates or efficiency estimates should use an optional downstream calibrator fitted only on previously completed matches.
 
 The model configuration also freezes pressure, sequence, label, pitch, passing,
 boundary, and edge-threshold parameters. These values are part of the learned

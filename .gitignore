@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 venv/
 output/
+plots/
 *.log
 .DS_Store
 ._*

@@ -62,7 +62,9 @@ def _incoming_ball(events: list[dict], position: int, flip: bool) -> tuple[float
             break
         if not prior.get("location"):
             continue
-        delta = metric_xy(*current, flip=flip) - metric_xy(*prior["location"], flip=flip)
+        delta = metric_xy(current[0], current[1], flip=flip) - metric_xy(
+            prior["location"][0], prior["location"][1], flip=flip
+        )
         angle = float(np.arctan2(delta[1], delta[0]))
         return float(np.linalg.norm(delta)), float(np.sin(angle)), float(np.cos(angle))
     return np.nan, np.nan, np.nan

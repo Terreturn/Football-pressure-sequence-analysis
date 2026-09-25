@@ -16,7 +16,7 @@ from spn.data_processing import (
 )
 from spn.feature_engineering import build_feature_table
 from spn.model import SPNModel
-from spn.output import build_result, empty_result, save_result
+from spn.output import build_result, empty_result, save_features, save_result
 
 
 def _runtime_configs(model: SPNModel) -> tuple[PressureParams, SequenceConfig, LabelConfig]:
@@ -33,8 +33,9 @@ def run_pipeline(
     match_id: str | None = None,
     *,
     model: SPNModel | None = None,
+    export_features: bool = False,
 ) -> dict[str, Any]:
-    """Process one match and write JSON/CSV inference outputs."""
+    """Process one match; optionally export model features for downstream plots."""
     frozen_model = model or SPNModel()
     pressure, sequence_config, label_config = _runtime_configs(frozen_model)
     match = load_match_data(
@@ -51,6 +52,8 @@ def run_pipeline(
     if sequences.empty:
         result = empty_result(match, frozen_model)
         save_result(result, output_dir)
+        if export_features:
+            save_features(None, frozen_model, output_dir)
         return result
     features = build_feature_table(
         match,
@@ -68,14 +71,22 @@ def run_pipeline(
         model=frozen_model,
     )
     save_result(result, output_dir)
+    if export_features:
+        save_features(features, frozen_model, output_dir)
     return result
 
 
 def _paired_json_files(events_dir: Path, frames_dir: Path) -> list[tuple[str, Path, Path]]:
     if not events_dir.is_dir() or not frames_dir.is_dir():
         raise FileNotFoundError("events-dir and three-sixty-dir must both exist")
-    events = {path.stem: path for path in events_dir.glob("*.json")}
-    frames = {path.stem: path for path in frames_dir.glob("*.json")}
+    events = {
+        path.stem: path for path in events_dir.glob("*.json")
+        if path.is_file() and not path.name.startswith("._")
+    }
+    frames = {
+        path.stem: path for path in frames_dir.glob("*.json")
+        if path.is_file() and not path.name.startswith("._")
+    }
     common = sorted(set(events) & set(frames))
     if not common:
         raise ValueError("no paired event/360 JSON filenames were found")
@@ -90,6 +101,7 @@ def main() -> None:
     parser.add_argument("--events-dir", type=Path, help="directory of event JSON files")
     parser.add_argument("--three-sixty-dir", type=Path, help="directory of 360 JSON files")
     parser.add_argument("--output", type=Path, required=True, help="output directory")
+    parser.add_argument("--export-features", action="store_true", help="also export model features for driver and team plots")
     args = parser.parse_args()
     single = args.events is not None or args.three_sixty is not None
     batch = args.events_dir is not None or args.three_sixty_dir is not None
@@ -105,6 +117,7 @@ def main() -> None:
             args.output,
             match_id=args.match_id,
             model=model,
+            export_features=args.export_features,
         )
         print(
             json.dumps(
@@ -131,6 +144,7 @@ def main() -> None:
             match_output,
             match_id=match_id,
             model=model,
+            export_features=args.export_features,
         )
         rows.append(
             {

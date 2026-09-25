@@ -150,7 +150,7 @@ def frame_players(event: dict, frame: dict) -> tuple[list[dict], int | None]:
     defending_event = event.get("team", {}).get("id") != event.get("possession_team", {}).get("id")
     event_location = event.get("location")
     event_carrier = (
-        metric_xy(*event_location, flip=defending_event)
+        metric_xy(event_location[0], event_location[1], flip=defending_event)
         if event_location is not None
         else None
     )
