@@ -1,4 +1,4 @@
-# Structural Pressure Network: public inference and plots
+# Structural Pressure Network
 
 This repository contains the compact public release of the Structural
 Pressure Network (SPN). It accepts paired StatsBomb-schema event and 360 JSON,
