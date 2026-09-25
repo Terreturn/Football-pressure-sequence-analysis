@@ -1,6 +1,7 @@
-"""Current-SPN descriptive analysis shared by the public plot entry point.
+"""SPN descriptive analysis shared by the public plot entry point.
 
-The probability and sequence-value definitions match the research outputs.
+Sequence-value and team-analysis definitions are implemented here for the plots.
+Raw probabilities come from the included model.
 No training, calibration, external season tables or private paths are needed.
 """
 from __future__ import annotations
@@ -284,9 +285,9 @@ def bootstrap_team_efficiency(
 ) -> pd.DataFrame:
     """Match-bootstrap absolute and league-relative 95% efficiency intervals.
 
-    Matches are resampled within each pressing team, matching the original S6
-    uncertainty analysis.  At every iteration the sequence-weighted league
-    mean is recomputed and subtracted from all team draws.
+    Matches are resampled within each pressing team. At every iteration, the
+    sequence-weighted league mean is recomputed and subtracted from all team
+    draws.
     """
     if iterations < 1:
         raise ValueError("bootstrap iterations must be positive")
@@ -660,8 +661,9 @@ def load_analysis_inputs(
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
     """Load public exports, verify complete sequences, and align model features.
 
-    Legacy exports remain usable with an explicit feature CSV. No raw events,
-    private feature caches or competition-specific tables are required.
+    Prediction exports without a feature file remain usable when one is
+    supplied explicitly. No raw events, private feature caches or
+    competition-specific tables are required.
     """
     paths = _csv_paths(source, "predictions.csv")
     frames = []

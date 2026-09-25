@@ -3,14 +3,13 @@
 This repository contains the compact public release of the Structural
 Pressure Network (SPN). It accepts paired StatsBomb-schema event and 360 JSON,
 detects high-pressure sequences, assigns realised sequence labels, builds the
-current top-19 SPN representation, and scores every complete anchor with the
-frozen sequence-weighted XGBoost model.
+19-feature SPN representation specified in `model/model_config.json`, and
+scores every complete anchor with the frozen sequence-weighted XGBoost model.
 
 It also provides optional feature-importance, feature-change/transition-value,
 and team pressure-intensity/efficiency plots. It does not contain training,
 feature selection, calibration fitting, notebooks, official league standings,
-match results, or raw match data. The World Cup efficiency/win-rate plot is not
-included.
+match results, or raw match data.
 
 ## Files
 
@@ -76,8 +75,7 @@ be parsed.
 
 This release supports any match, competition, or season that follows those
 semantics. A different provider's JSON must first be mapped to the StatsBomb
-event/360 contract. Version 1 is an offline completed-match pipeline, not a
-live streaming service.
+event/360 contract. This package processes completed matches offline.
 
 ## Run one match
 
@@ -117,7 +115,7 @@ print(result["audit"])
 ```
 
 Pass `export_features=True` to also write the inputs needed by the data-dependent
-plots. The existing return structure remains unchanged.
+plots. The returned result has the same fields with either setting.
 
 The two sources may also be already-decoded Python lists. In that case a
 `match_id` must be supplied.
@@ -174,15 +172,16 @@ python run.py --events-dir events --three-sixty-dir three_sixty --output output 
 python plot.py --input output --output plots
 ```
 
-Single-match inference supports the same `--export-features` flag. Each match
-adds `features.csv` and `features_metadata.json`; the original three output
-files keep their existing schemas. Feature CSVs contain the four anchor keys
-and exactly the 19 model features, without observed outcomes or future label
-evidence. Metadata records model/config hashes and the feature file hash.
+Single-match inference supports the same `--export-features` flag. With this
+flag, each match writes `features.csv` and `features_metadata.json` alongside
+`result.json`, `predictions.csv`, and `sequences.csv`. Feature CSVs contain the
+four anchor keys and exactly the 19 model features. They contain no observed
+outcomes or future label evidence. Metadata records model/config hashes and
+the feature file hash.
 
 `plot.py` accepts a single-match directory, a batch directory, or a predictions
-CSV. It finds `features.csv` beside each predictions file. For older outputs,
-provide `--features path/to/features.csv` or re-run inference with
+CSV. It finds `features.csv` beside each predictions file. If that file is
+absent, provide `--features path/to/features.csv` or re-run inference with
 `--export-features`; probabilities alone cannot recover pressure or geometric
 features. An explicit feature CSV must contain the four anchor keys and all
 19 model features. CSV identifiers are read as strings.
@@ -250,7 +249,7 @@ python -m unittest discover -s tests -v
 
 The public model is `current-spn-top19-xgb-raw`:
 
-- M1 sequence-weighted XGBoost;
+- sequence-weighted XGBoost;
 - raw `fail / neutral / success` probabilities;
 - 19 features in the exact order recorded in `model/model_config.json`;
 - native XGBoost UBJ artifact with a verified SHA-256 hash.

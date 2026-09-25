@@ -7,11 +7,12 @@ for feature names, their **input order**, and preprocessing settings is
 
 ## Model
 
-- **Identity:** `current-spn-top19-xgb-raw`, version `1.0.0`.
+- **Identity:** `current-spn-top19-xgb-raw`, version `1.0.0`. The `current`
+  segment is retained as a stable model identifier for matching outputs.
 - **Task:** predict `fail`, `neutral`, or `success` for each complete high-pressure
   sequence anchor. The output is the model's **raw** three-class probability;
   no isotonic calibration is applied.
-- **Estimator:** M1 sequence-weighted XGBoost (`multi:softprob`), saved as a
+- **Estimator:** sequence-weighted XGBoost (`multi:softprob`), saved as a
   native UBJ model. Each training sequence had total weight 1, distributed as
   `1 / anchor_count` across its anchors. The 19 input features are the frozen
   `SPN_weighted_top_19` subset; outcome labels are never model inputs.
@@ -60,7 +61,7 @@ features and five changes between anchors.
 
 | Feature | Meaning |
 | --- | --- |
-| `P_total` | Combined defender-to-carrier pressure, `1 − ∏(1 − p_i)`, from distance weights. This **feature excludes boundary pressure**, although the Stage-1 detector can include it. |
+| `P_total` | Combined defender-to-carrier pressure, `1 − ∏(1 − p_i)`, from distance weights. This **feature excludes boundary pressure**, although sequence detection can include it. |
 | `effective_pressers` | Effective number of active defender pressure contributions, `(Σp_i)² / Σp_i²`. |
 | `weighted_angular_dispersion` | How widely defenders surround the carrier, weighted by their pressure. |
 | `n_active_carrier_boundaries` | Count of pitch-boundary edges affecting the carrier at the network threshold. |

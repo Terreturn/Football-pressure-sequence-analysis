@@ -1,4 +1,4 @@
-"""Frozen current-SPN XGBoost inference."""
+"""Frozen SPN XGBoost inference."""
 from __future__ import annotations
 
 import hashlib

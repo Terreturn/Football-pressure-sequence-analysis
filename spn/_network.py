@@ -107,7 +107,7 @@ def total_pressure(
     include_boundary: bool = True,
     use_all_lines: bool = False,
 ) -> dict:
-    """Combine player and boundary pressure using the Stage-1 formulation."""
+    """Combine player and boundary pressure for sequence detection."""
     player_weights = [
         sigmoid_pressure(params.k_player, params.player_distance, np.linalg.norm(point - defender))
         for defender in defenders
@@ -143,9 +143,9 @@ def metric_xy(x: float, y: float, flip: bool = False) -> np.ndarray:
 def frame_players(event: dict, frame: dict) -> tuple[list[dict], int | None]:
     """Convert a StatsBomb frame into attack-normalised player nodes.
 
-    The event location is authoritative for the carrier, matching the main
-    pipeline.  For user data without an event location, the freeze-frame actor
-    location remains a supported fallback.
+    The event location is authoritative for the carrier. For user data without
+    an event location, the freeze-frame actor location remains a supported
+    fallback.
     """
     defending_event = event.get("team", {}).get("id") != event.get("possession_team", {}).get("id")
     event_location = event.get("location")

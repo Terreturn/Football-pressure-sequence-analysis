@@ -152,8 +152,8 @@ class LabelConfig:
     receiver_relief_threshold: float = 0.65
     forward_angle_deg: float = 60.0
     backward_angle_deg: float = 120.0
-    # Retained only so older notebooks/configuration files still construct.
-    # Semantic resolution no longer uses fixed live/restart time cutoffs.
+    # Accepted for configuration compatibility; semantic resolution does not
+    # use fixed live/restart time cutoffs.
     live_resolution_seconds: float = 5.0
     restart_confirmation_seconds: float = 10.0
     goalkeeper_collect_types: tuple[str, ...] = (
@@ -925,7 +925,7 @@ def detect_sequences(
 
 
 def _event_direction(event: dict) -> tuple[None, float, float, float, float] | None:
-    """Metric displacement of an S1 anchor action."""
+    """Metric displacement of an anchor action."""
     location = event.get("location")
     event_type = event.get("type", {}).get("name")
     if event_type == "Pass":
@@ -1094,7 +1094,7 @@ def classify_anchor(
     config: LabelConfig = LabelConfig(),
     team_ids: set[int] | None = None,
 ) -> dict:
-    """Apply the main v2 terminal-first state machine to one anchor."""
+    """Apply the terminal-first outcome state machine to one anchor."""
     anchor = events[position]
     attacking_team = anchor.get("team", {}).get("id")
     if team_ids is None:
@@ -1203,7 +1203,7 @@ def label_anchor(
     config: LabelConfig = LabelConfig(),
     team_ids: set[int] | None = None,
 ) -> dict:
-    """Public alias for the main-pipeline anchor classifier."""
+    """Public alias for the anchor classifier."""
     return classify_anchor(
         events,
         position,
@@ -1561,7 +1561,7 @@ def resolve_sequence_output(
                 if regain_candidate_event
                 else ""
             ),
-            # Compatibility aliases keep the existing S2/S3 input contract.
+            # Audit fields used by sequence labels and feature construction.
             "state": state,
             "outcome_tag": output,
             "terminal": bool(terminal),
@@ -2335,8 +2335,9 @@ def label_sequence_anchors(
     final anchor retains the semantic sequence-end state.  These audit fields
     explain the transition but are not regression targets.
 
-    Future-anchor data are returned as audit-only label evidence.  S3 does not
-    include those fields in the feature matrix, preventing look-ahead leakage.
+    Future-anchor data are returned as audit-only label evidence. Feature
+    construction does not include those fields in the feature matrix,
+    preventing look-ahead leakage.
     """
     if len(sequence) != len(sequence_rows):
         raise ValueError("sequence and sequence_rows must have equal length")

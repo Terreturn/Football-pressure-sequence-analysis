@@ -1,4 +1,4 @@
-"""S3/SPN feature construction from user-supplied StatsBomb event and 360 data."""
+"""SPN feature construction from user-supplied StatsBomb event and 360 data."""
 from __future__ import annotations
 
 import json
@@ -71,7 +71,7 @@ def _incoming_ball(events: list[dict], position: int, flip: bool) -> tuple[float
 
 
 def _legacy_carrier_x_norm(event: dict, frame: dict) -> float | None:
-    """Return the main SPN carrier-x source: the clipped freeze-frame actor."""
+    """Return carrier x from the clipped freeze-frame actor location."""
     defending_event = (
         event.get("team", {}).get("id")
         != event.get("possession_team", {}).get("id")
@@ -233,10 +233,10 @@ def network_features(
         sigmoid_pressure(params.k_player, params.player_distance, np.linalg.norm(xy[index] - carrier))
         for index in defenders
     ])
-    # V3-derived read-outs use the strict edge threshold.
+    # Active carrier-pressure weights use the strict edge threshold.
     active = carrier_weights[carrier_weights > params.edge_epsilon]
     receiver_pressure = []
-    # SPN supplement read-outs use the inclusive threshold in the main version.
+    # Receiver-pressure weights use the inclusive edge threshold.
     receiver_pressure_inclusive = []
     for receiver in receivers:
         values = [sigmoid_pressure(params.k_player, params.player_distance, np.linalg.norm(xy[index] - xy[receiver])) for index in defenders]
@@ -278,7 +278,7 @@ def network_features(
         else float(carrier[0] / 105.0)
     )
     if carrier_x_norm is None:
-        raise ValueError("The main SPN carrier_x_norm requires a freeze-frame actor")
+        raise ValueError("carrier_x_norm requires a freeze-frame actor")
     structural = {
         **_voronoi_area_features(network),
         **_pressure_graph_features(network),
@@ -345,7 +345,7 @@ def _sequence_anchor_point(
     anchor: pd.Series,
     by_id: dict[str, tuple[int, dict]],
 ) -> list[float] | None:
-    """Use S1's resolved anchor point, falling back to the raw event location."""
+    """Use the resolved anchor point, falling back to the raw event location."""
     point = _finite_point(
         anchor.get("actor_x_norm"),
         anchor.get("actor_y"),
@@ -402,12 +402,12 @@ def _sequence_context_incoming(
 ) -> dict[tuple[int, int, str], dict]:
     """Resolve incoming direction only through the sequence context chain.
 
-    The first anchor consumes the pre-sequence context already resolved by
-    S1.  Every later anchor starts at the immediately preceding sequence
-    anchor. Same-location anchors are followed recursively until a distinct
-    sequence point is found, with the sequence's pre-context as the final
-    fallback. Raw events between anchors are never searched here. If the
-    chain is exhausted, all three incoming fields remain NaN.
+    The first anchor consumes the resolved pre-sequence context. Every later
+    anchor starts at the immediately preceding sequence anchor. Same-location
+    anchors are followed recursively until a distinct sequence point is found,
+    with the sequence's pre-context as the final fallback. Raw events between
+    anchors are never searched here. If the chain is exhausted, all three
+    incoming fields remain NaN.
     """
     result: dict[tuple[int, int, str], dict] = {}
     for sequence_id, sequence in anchors.groupby("seq_id", sort=False):
@@ -555,7 +555,7 @@ def build_spn_feature_table(
 ) -> pd.DataFrame:
     """Build all anchor SPNs and join final-output regression targets.
 
-    A sequence-first anchor uses S1's nearest distinct pre-context ball point
+    A sequence-first anchor uses the nearest distinct pre-context ball point
     for incoming direction. Later anchors resolve direction only through the
     preceding sequence-anchor chain; same-location anchors are followed back
     to the first distinct anchor or the sequence pre-context. Raw intervening
@@ -565,8 +565,9 @@ def build_spn_feature_table(
     differences remain current high-pressure anchor minus the immediately
     preceding sequence anchor, even when their locations are equal. Context
     itself is never emitted as a feature row.
-    S1 supplies one target per anchor: every event in a sequence inherits the
-    same final output, numeric event value, and 1/anchor_count training weight.
+    Sequence detection supplies one target per anchor: every event in a
+    sequence inherits the same final output, numeric event value, and
+    1/anchor_count training weight.
     Immediate event states remain audit fields and are never SPN features.
     """
     required_sequence_columns = {
@@ -782,9 +783,9 @@ def build_spn_feature_table(
         )
     # A missing actor/frame or an invalid network can make a single anchor
     # unmodellable.  Keeping the remaining anchors would silently reduce that
-    # sequence's Stage-1 total training weight below one.  S3 therefore keeps
-    # only sequences for which every S1 anchor produced a feature row; weights
-    # are never renormalised and no feature row is fabricated.
+    # sequence's total training weight below one. Feature construction therefore
+    # keeps only sequences for which every detected anchor produced a feature
+    # row; weights are never renormalised and no feature row is fabricated.
     emitted_sequence_sizes = (
         labelled_rows.groupby(["match_id", "seq_id"], sort=False)
         .size()
@@ -816,7 +817,7 @@ def build_spn_feature_table(
         validate="many_to_one",
     )
     if labelled_rows.empty:
-        raise ValueError("No anchor-complete sequences remain after S3 construction")
+        raise ValueError("No anchor-complete sequences remain after feature construction")
     result = labelled_rows.sort_values(
         ["match_id", "seq_id", "ev_pos"]
     ).reset_index(drop=True)

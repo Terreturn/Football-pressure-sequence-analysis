@@ -1,4 +1,4 @@
-"""Paper-style plots for the frozen public model and a user's match outputs."""
+"""Plots for the included SPN model and a user's match outputs."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -201,7 +201,7 @@ def plot_gain(table: pd.DataFrame) -> plt.Figure:
     axis.set_xlabel("Relative mean gain")
     axis.set_ylabel("")
     axis.set_title(
-        "Current SPN top-19 XGBoost feature importance",
+        "SPN top-19 XGBoost feature importance",
         fontsize=15,
         pad=13,
     )
@@ -243,7 +243,7 @@ def plot_drivers(
     axis.set_xlabel(r"Pearson $r$ with transition $v_t$")
     axis.set_ylabel("")
     axis.set_title(
-        rf"Current SPN level-feature changes associated with $v_t$ "
+        rf"SPN level-feature changes associated with $v_t$ "
         rf"(joint $R^2$={joint_r2:.3f})",
         fontsize=14.5,
         pad=13,
@@ -338,7 +338,7 @@ def plot_intensity_efficiency(table: pd.DataFrame, audit: dict[str, object]) -> 
     axis.set_xlabel("Per-match carrier-pressure intensity")
     axis.set_ylabel("Relative composite efficiency per 100 sequences")
     axis.set_title(
-        "Current SPN pressing intensity and relative composite efficiency",
+        "SPN pressing intensity and relative composite efficiency",
         fontsize=14.5,
         pad=13,
     )
