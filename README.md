@@ -255,6 +255,9 @@ The public model is `current-spn-top19-xgb-raw`:
 - 19 features in the exact order recorded in `model/model_config.json`;
 - native XGBoost UBJ artifact with a verified SHA-256 hash.
 
+For model parameters and a categorized description of all 19 inputs, see
+[the model and feature guide](spn/MODEL.md).
+
 Raw probabilities support general cross-season inference and ranking; absolute season-level success rates or efficiency estimates should use an optional downstream calibrator fitted only on previously completed matches.
 
 The model configuration also freezes pressure, sequence, label, pitch, passing,
