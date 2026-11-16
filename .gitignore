@@ -7,3 +7,4 @@ plots/
 *.log
 .DS_Store
 ._*
+.ipynb_checkpoints/

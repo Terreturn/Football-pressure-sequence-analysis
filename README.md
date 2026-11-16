@@ -6,9 +6,12 @@ detects high-pressure sequences, assigns realised sequence labels, builds the
 19-feature SPN representation specified in `model/model_config.json`, and
 scores every complete anchor with the frozen sequence-weighted XGBoost model.
 
+The sample notebook covers loading public data, processing, model inference,
+evaluation, and team efficiency rankings. [Sample workflow](tests/Sample_workflow.ipynb)
+
 It also provides optional feature-importance, feature-change/transition-value,
 and team pressure-intensity/efficiency plots. It does not contain training,
-feature selection, calibration fitting, notebooks, official league standings,
+feature selection, calibration fitting, official league standings,
 match results, or raw match data.
 
 ## Files
@@ -19,10 +22,15 @@ match results, or raw match data.
 ├── plot.py
 ├── requirements.txt
 ├── requirements-plots.txt
+├── tests/
+│   ├── data_checks.py
+│   └── Sample_workflow.ipynb
 ├── model/
+│   ├── README.md
 │   ├── model.ubj
 │   └── model_config.json
 └── spn/
+    ├── MODEL.md
     ├── data_processing.py
     ├── feature_engineering.py
     ├── _network.py
@@ -54,6 +62,42 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 ```
+
+On macOS, XGBoost requires the OpenMP runtime, available through `brew install libomp`.
+
+## Sample workflow
+
+The notebook uses Hudl's `statsbombpy` package to load public event and 360
+freeze-frame data. The default selection is the 2022 World Cup. Change
+`COMPETITION_ID` and `SEASON_ID` in the first code cell to select another
+competition and season with event and 360 coverage.
+[Sample workflow](tests/Sample_workflow.ipynb),
+[StatsBomb Open Data](https://github.com/statsbomb/open-data),
+[statsbombpy](https://github.com/hudl/statsbombpy)
+
+Install the notebook dependencies and launch Jupyter from the repository root.
+
+```bash
+python -m pip install -r requirements.txt jupyterlab statsbombpy==1.22.0
+python -m jupyterlab tests/Sample_workflow.ipynb
+```
+
+Run the cells in order. An internet connection is needed to fetch the data.
+Responses are cached in memory for the current session, and match objects and
+result tables remain available in the notebook kernel.
+
+| Step | Result |
+| --- | --- |
+| Select and validate matches | `matches_table` stores the catalogue. Checks in `tests/data_checks.py` identify `matches_for_processing`. |
+| Process event and 360 data | `sequences_table` and `labels_table` store pressure anchors and sequence outcomes. `processing_log` records per-match processing counts. |
+| Build networks and model inputs | `model_input_table` contains four anchor identifiers and the 19 configured features in model order. `feature_log` records sequence retention. |
+| Apply SPN Classifier | `model_output_table` stores `p_fail`, `p_neutral`, `p_success`, `predicted_class`, and `confidence` for each modelled anchor. |
+| Evaluate predictions | `evaluation_summary` displays overall and per-class metrics against resolved rule-derived labels. Each sequence contributes total weight one, with unweighted anchor accuracy also reported. |
+| Rank team efficiency | `efficiency_ranking` stores the team rankings. `top_five_efficiency` displays the five highest-ranked pressing teams. |
+
+Efficiency is the team mean sequence value relative to the selected dataset
+mean, multiplied by 100. The notebook uses terminal weight 0.5. The analysis
+includes complete sequences with resolved outcomes.
 
 ## Input
 
@@ -239,23 +283,18 @@ raise errors. When `sequences.csv` is available, its anchor counts are checked
 to detect truncated sequence tails. Standalone CSV users must supply complete
 sequences; continuity alone cannot prove that the final anchor is present.
 
-To run the plotting/analysis tests after installing plotting dependencies:
-
-```bash
-python -m unittest discover -s tests -v
-```
-
 ## Frozen model contract
 
-The public model is `current-spn-top19-xgb-raw`:
+The public model is `SPN Classifier`:
 
 - sequence-weighted XGBoost;
 - raw `fail / neutral / success` probabilities;
 - 19 features in the exact order recorded in `model/model_config.json`;
 - native XGBoost UBJ artifact with a verified SHA-256 hash.
 
-For model parameters and a categorized description of all 19 inputs, see
-[the model and feature guide](spn/MODEL.md).
+The model folder contains a short description of its inputs, outputs, and
+training parameters. Detailed definitions cover all 19 selected features.
+[Model overview](model/README.md), [model and feature guide](spn/MODEL.md)
 
 Raw probabilities support general cross-season inference and ranking; absolute season-level success rates or efficiency estimates should use an optional downstream calibrator fitted only on previously completed matches.
 

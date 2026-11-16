@@ -7,8 +7,7 @@ for feature names, their **input order**, and preprocessing settings is
 
 ## Model
 
-- **Identity:** `current-spn-top19-xgb-raw`, version `1.0.0`. The `current`
-  segment is retained as a stable model identifier for matching outputs.
+- **Identity:** `SPN Classifier`, version `1.0.0`.
 - **Task:** predict `fail`, `neutral`, or `success` for each complete high-pressure
   sequence anchor. The output is the model's **raw** three-class probability;
   no isotonic calibration is applied.

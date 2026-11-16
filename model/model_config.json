@@ -1,5 +1,5 @@
 {
-  "model_id": "current-spn-top19-xgb-raw",
+  "model_id": "SPN Classifier",
   "model_version": "1.0.0",
   "probability_layer": "raw",
   "artifact_format": "xgboost-ubj",
