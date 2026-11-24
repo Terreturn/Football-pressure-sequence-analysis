@@ -14,6 +14,15 @@ and team pressure-intensity/efficiency plots. It does not contain training,
 feature selection, calibration fitting, official league standings,
 match results, or raw match data.
 
+## Contributors
+
+This project includes code contributions from:
+
+- [Brennan Klein (@jkbren)](https://github.com/jkbren)
+- [Maddalena Torricelli (@maddaleona)](https://github.com/maddaleona)
+
+Their contributions were integrated and uploaded by [Terreturn](https://github.com/Terreturn).
+
 ## Files
 
 ```text
