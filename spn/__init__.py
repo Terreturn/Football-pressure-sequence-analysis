@@ -1,4 +1,9 @@
-"""Public Structural Pressure Network data processing and inference package."""
+"""Structural Pressure Network match analysis.
+
+data_processing loads matches and labels pressure sequences; feature_engineering
+measures the 26 inputs. model scores sequence outcomes and positioning scores
+individual pressers. output builds the result tables and plotting draws them.
+"""
 
 from .data_processing import MatchData, load_match_data, build_sequences_from_match
 from .feature_engineering import build_feature_table

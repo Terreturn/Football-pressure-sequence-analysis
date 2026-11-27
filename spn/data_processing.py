@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from ._core.pressure_events import Rules
-from ._core.sequences import rebuild
-from ._network import PressureParams
+from .pressure_events import Rules
+from .sequences import sequence_anchors
+from .networks import PressureParams
 
 
 @dataclass(frozen=True)
@@ -214,7 +214,7 @@ def build_sequences_from_match(
         forward_degrees=label_config.forward_angle_deg,
         backward_degrees=label_config.backward_angle_deg,
     )
-    anchors = rebuild(match.events, match.frames, rules)["anchors"]
+    anchors = sequence_anchors(match.events, match.frames, rules)
     teams = {
         e["team"]["id"]: e["team"].get("name")
         for e in match.events

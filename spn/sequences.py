@@ -1,19 +1,13 @@
-"""Group high-pressure events and resolve each pressing sequence's final outcome.
+"""Select high-pressure events, group them into sequences and resolve their outcomes.
 
-Detection, grouping and target resolution remain separate. Future events explain
-the target, never the onset predictors. This code does not import the original
-sequence builder or use cached labels. Label eligibility here is provisional:
-whole-sequence feature representability is a separate Stage 3 decision."""
+The feature stage checks whether every event in a resolved sequence has a usable frame.
+"""
 
 from __future__ import annotations
 
-from collections import Counter
-
 import math
 
-import time
-
-from spn._core.pressure_events import (
+from .pressure_events import (
     ACTIONS,
     ADMIN,
     RESTARTS,
@@ -59,6 +53,22 @@ FAILURE = {
 NEITHER = {"retained_out", "pressed_keeper_control", "contained_release"}
 
 VALUES = {"success": 1, "neutral": 0, "fail": -1}
+
+
+def sequence_anchors(events: list[dict], frames: dict, rules: Rules = Rules()) -> list[dict]:
+    """Select, group and label pressure events in one ordered match."""
+    ids, indices = [e["id"] for e in events], [e["index"] for e in events]
+    if (
+        len(ids) != len(set(ids))
+        or len(indices) != len(set(indices))
+        or indices != sorted(indices)
+    ):
+        raise ValueError("Unique ordered events required")
+    selected = detect(events, frames, rules)
+    groups, reasons = group(events, frames, selected, rules)
+    anchors, sequences = attach_targets(events, frames, groups, reasons, selected, rules)
+    validate(anchors, sequences, {events[index]["id"] for index in selected})
+    return anchors
 
 
 def opponent_touch(events: list[dict], left: int, right: int) -> bool:
@@ -127,27 +137,15 @@ def semantic_split(
     return ""
 
 
-def detect(
-    events: list[dict], frames: dict, rules: Rules
-) -> tuple[dict[int, dict], list[dict]]:
-    """Select anchors and audit every deliberate action plus Miscontrol; counts are events."""
-    selected, candidates = {}, []
+def detect(events: list[dict], frames: dict, rules: Rules) -> dict[int, dict]:
+    """Select high-pressure anchors by raw event position."""
+    selected = {}
     for i, event in enumerate(events):
         if name(event) not in ACTIONS | {"Miscontrol"}:
             continue
         repair = dribble_point(events, i, rules) if name(event) == "Dribble" else None
         xy = repair["location"] if repair else point(event.get("location"))
-        metrics, reason = high_pressure(event, frames.get(event["id"]), xy, rules)
-        candidates.append(
-            {
-                "anchor_event_id": event["id"],
-                "raw_event_position": i,
-                "event_type": name(event),
-                "period": event.get("period"),
-                "detection_reason": reason,
-                "selected": metrics is not None,
-            }
-        )
+        metrics, _ = high_pressure(event, frames.get(event["id"]), xy, rules)
         if metrics is not None:
             if repair:
                 metrics.update(
@@ -158,7 +156,7 @@ def detect(
                     }
                 )
             selected[i] = metrics
-    return selected, candidates
+    return selected
 
 
 def group(
@@ -758,13 +756,10 @@ def attach_targets(
     return anchors, sequences
 
 
-def validate(
-    anchors: list[dict], sequences: list[dict], candidates: list[dict]
-) -> None:
+def validate(anchors: list[dict], sequences: list[dict], selected_ids: set) -> None:
     """Assert membership, onset, weight and target conservation; counts are rows."""
-    selected = {r["anchor_event_id"] for r in candidates if r["selected"]}
     ids = [a["anchor_event_id"] for a in anchors]
-    if len(ids) != len(set(ids)) or set(ids) != selected:
+    if len(ids) != len(set(ids)) or set(ids) != selected_ids:
         raise ValueError("Anchor membership conservation failed")
     grouped = {}
     for anchor in anchors:
@@ -795,37 +790,3 @@ def validate(
             raise ValueError("Sequence invariant failed")
         if seq["sequence_output"] == "censored" and not seq["censored_reason"]:
             raise ValueError("Censor reason missing")
-
-
-def rebuild(events: list[dict], frames: dict, rules: Rules = Rules()) -> dict:
-    """Rebuild one sorted match; return tables, counts and separate phase times in seconds."""
-    ids, indices = [e["id"] for e in events], [e["index"] for e in events]
-    if (
-        len(ids) != len(set(ids))
-        or len(indices) != len(set(indices))
-        or indices != sorted(indices)
-    ):
-        raise ValueError("Unique ordered events required")
-    start = time.perf_counter()
-    selected, candidates = detect(events, frames, rules)
-    detection = time.perf_counter() - start
-    start = time.perf_counter()
-    groups, reasons = group(events, frames, selected, rules)
-    grouping = time.perf_counter() - start
-    start = time.perf_counter()
-    anchors, sequences = attach_targets(
-        events, frames, groups, reasons, selected, rules
-    )
-    validate(anchors, sequences, candidates)
-    labels = time.perf_counter() - start
-    return {
-        "anchors": anchors,
-        "sequences": sequences,
-        "candidates": candidates,
-        "detection_seconds": detection,
-        "grouping_seconds": grouping,
-        "label_seconds": labels,
-        "detection_counts": dict(Counter(r["detection_reason"] for r in candidates)),
-        "state_counts": dict(Counter(s["sequence_end_state"] for s in sequences)),
-        "output_counts": dict(Counter(s["sequence_output"] for s in sequences)),
-    }

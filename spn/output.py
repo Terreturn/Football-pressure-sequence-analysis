@@ -260,3 +260,29 @@ def save_result(result: dict[str, Any], output_dir: str | Path) -> None:
     if sequences.empty:
         sequences = pd.DataFrame(columns=EMPTY_SEQUENCE_COLUMNS)
     sequences.to_csv(target / "sequences.csv", index=False)
+
+
+def team_values(scored):
+    """Return the onset count and mean success-minus-failure probability for each pressing team.
+
+    Include dataset when combining seasons. The returned value is on the probability
+    scale and precedes the league-season centering used for Figure 3.
+    """
+    onsets = scored.loc[scored.ev_pos.eq(0)].copy()
+    if onsets.duplicated(["match_id", "seq_id"]).any():
+        raise ValueError("Duplicate sequence onset")
+    # A missing probability would otherwise be counted in presses and skipped by pandas' mean.
+    scores = onsets[["p_success", "p_fail"]].to_numpy(dtype=float)
+    if not np.isfinite(scores).all() or ((scores < 0) | (scores > 1)).any():
+        raise ValueError(
+            "Each onset needs finite success and failure probabilities between zero and one"
+        )
+    onsets["value"] = onsets.p_success - onsets.p_fail
+    groups = ["pressing_team_id"]
+    if "dataset" in onsets:
+        groups.insert(0, "dataset")
+    return (
+        onsets.groupby(groups, dropna=False)
+        .value.agg(presses="size", expected_press_value="mean")
+        .reset_index()
+    )
