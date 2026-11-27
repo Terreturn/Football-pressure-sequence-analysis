@@ -173,6 +173,23 @@ def test_recorded_presser_against_paper_folds(match_id, observed, alternative, e
     )
 
 
+@pytest.mark.parametrize(
+    "event_location, expected_ids",
+    [
+        ([86.1, 39.20000076293945], ["named-pressure"]),
+        ([86.2, 39.2], []),
+        ([86.1, 39.3], []),
+    ],
+)
+def test_presser_coordinates_match_at_one_decimal(event_location, expected_ids):
+    events, frames = pressure_fixture()
+    events[1]["location"] = event_location
+    actor = next(player for player in frames[1]["freeze_frame"] if player["actor"])
+    actor["location"] = [86.0999984741211, 39.2]
+    match = load_match_data(events, frames, "invented")
+    assert score_positions(match)["event_id"].tolist() == expected_ids
+
+
 def test_unnamed_pressure_is_excluded():
     events, frames = pressure_fixture()
     events[1].pop("player")

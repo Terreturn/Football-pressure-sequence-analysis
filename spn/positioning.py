@@ -113,12 +113,10 @@ def pressure_positions(events, frames, match_id, *, move_players=True):
         if actor is None:
             continue
         player = frame["freeze_frame"][actor]
-        if (
-            player.get("keeper")
-            or not event.get("location")
-            or np.linalg.norm((np.asarray(player["location"]) - event["location"]) * [0.875, 0.85])
-            > 1e-7
-        ):
+        if player.get("keeper") or not event.get("location"):
+            continue
+        # Compare on the StatsBomb grid; retain the original 360 coordinates for scoring.
+        if not np.array_equal(np.round(player["location"], 1), np.round(event["location"], 1)):
             continue
         pressing = team(event)
         (owner,) = teams - {pressing}
