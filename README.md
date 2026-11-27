@@ -6,8 +6,9 @@ detects high-pressure sequences, assigns realised sequence labels, builds the
 26-feature SPN representation specified in `model/model_config.json`, and
 scores the anchors of resolved, fully representable sequences with the temperature-calibrated XGBoost model. A separate positioning task scores eligible recorded pressers.
 
-The sample notebook covers loading public data, processing, model inference,
-evaluation, team expected press value, and individual positioning. [Sample workflow](tests/Sample_workflow.ipynb)
+Follow one press from its 360 freeze frame through 26 features to its predicted
+outcome, then compare the teams and recorded pressers in three World Cup matches.
+The worked tables and rankings are visible on GitHub. [Sample workflow](tests/Sample_workflow.ipynb)
 
 Plot team and player rankings for the matches you select. Shot xG and competition points enable two additional team comparisons. [Plot match results](#plot-match-results)
 
@@ -29,8 +30,9 @@ Their contributions were integrated and uploaded by [Terreturn](https://github.c
 ├── requirements.txt
 ├── requirements-plots.txt
 ├── tests/
-│   ├── data_checks.py
-│   └── Sample_workflow.ipynb
+│   ├── Sample_workflow.ipynb
+│   ├── test_inference.py
+│   └── test_plotting.py
 ├── model/
 │   ├── README.md
 │   ├── model.ubj
@@ -42,27 +44,25 @@ Their contributions were integrated and uploaded by [Terreturn](https://github.c
     ├── MODEL.md
     ├── data_processing.py
     ├── feature_engineering.py
-    ├── _network.py
+    ├── networks.py
+    ├── pressure_events.py
+    ├── sequences.py
+    ├── player_tracking.py
     ├── model.py
     ├── positioning.py
-    ├── _core/
+    ├── vendor/
     ├── output.py
     ├── analysis.py
+    ├── _network.py
     └── plotting.py
 ```
 
-- `data_processing.py`: JSON loading, pressure-event detection, semantic
-  sequence construction, and sequence/anchor labels.
-- `feature_engineering.py`: SPN, Voronoi, Delaunay, passing, boundary, incoming
-  ball, and temporal features.
-- `_network.py` and `_core/`: pressure, passing, Voronoi and shape-graph calculations.
-- `positioning.py`: recorded-presser eligibility, fold selection and nearby alternative scoring.
-- `model.py`: native XGBoost artifact loading, hash verification, feature
-  contract checks, and temperature-calibrated three-class probabilities.
-- `output.py`: compact JSON and CSV outputs.
-- `analysis.py`: sequence valuation, team aggregation, feature-change
-  associations and bootstrap intervals using public outputs.
-- `plotting.py` draws rankings and comparisons from match outputs. `_plot_data.py` reads the selected fixtures and `_plot_style.py` renders their teams and players.
+- `data_processing.py` pairs events with freeze frames. `pressure_events.py` and `sequences.py` detect anchors, group them and resolve outcomes.
+- `networks.py` builds the pressure and passing networks. `feature_engineering.py` computes the 26 ordered inputs.
+- `model.py` loads the sequence weights and calibrates the outcome probabilities.
+- `positioning.py` scores a recorded presser against nearby alternatives, using `player_tracking.py` to identify players across frames.
+- `output.py` builds result tables and team press values. `plotting.py` draws team and player rankings and the two optional comparisons.
+- `analysis.py` and `_network.py` retain earlier import paths.
 
 ## Environment
 
@@ -78,34 +78,36 @@ On macOS, XGBoost requires the OpenMP runtime, available through `brew install l
 
 ## Sample workflow
 
-The notebook uses Hudl's `statsbombpy` package to load public event and 360
-freeze-frame data. The default selection is the 2022 World Cup. Change
-`COMPETITION_ID` and `SEASON_ID` in the first code cell to select another
-competition and season with event and 360 coverage.
-[Sample workflow](tests/Sample_workflow.ipynb),
-[StatsBomb Open Data](https://github.com/statsbomb/open-data),
-[statsbombpy](https://github.com/hudl/statsbombpy)
+The notebook uses Hudl’s `statsbombpy` to fetch events and 360 freeze frames.
+The default matches are England–United States, France–Australia and Argentina–Mexico
+in the 2022 World Cup group stage. [Sample workflow](tests/Sample_workflow.ipynb) · [StatsBomb Open Data](https://github.com/statsbomb/open-data)
 
 Install the notebook dependencies and launch Jupyter from the repository root.
 
 ```bash
-python -m pip install -r requirements.txt jupyterlab statsbombpy==1.22.0
+python -m pip install -r requirements-plots.txt jupyterlab statsbombpy==1.22.0
 python -m jupyterlab tests/Sample_workflow.ipynb
 ```
 
-Run the cells in order. An internet connection is needed to fetch the data.
-Responses are cached in memory for the current session, and match objects and
-result tables remain available in the notebook kernel.
+Run the cells in order with an internet connection. Change `MATCH_IDS` to select
+other fixtures, or set it to `None` to process all matches with both data sources
+in the chosen competition and season. The downloaded records, per-match tables and
+charts are written under `output/sample/`. Rerunning with another selection updates
+the batch index so the rankings use only the current matches.
 
 | Step | Result |
 | --- | --- |
-| Select and validate matches | `matches_table` stores the catalogue. Checks in `tests/data_checks.py` identify `matches_for_processing`. |
-| Process event and 360 data | `sequences_table` and `labels_table` store pressure anchors and sequence outcomes. `processing_log` records per-match processing counts. |
-| Build networks and model inputs | `model_input_table` contains four anchor identifiers and the 26 configured features in model order. `feature_log` records sequence retention. |
-| Apply SPN Classifier | `model_output_table` stores `p_fail`, `p_neutral`, `p_success`, `predicted_class`, and `confidence` for each modelled anchor. |
-| Evaluate predictions | `evaluation_summary` displays overall and per-class metrics against resolved rule-derived labels. Each sequence contributes total weight one, with unweighted anchor accuracy also reported. |
-| Summarise teams | `team_summary` averages `p_success - p_fail` at sequence onset, with one vote per sequence. |
-| Score positioning | `position_scores` holds eligible recorded pressures for the example fixture. |
+| Select fixtures | Show dates, teams, stage and event/360 availability. |
+| Identify sequences | Count anchors and sequences, then follow one press through its observed outcome. |
+| Inspect a network | Identify the carrier, visible defenders, pressure edges and passing options at onset. |
+| Measure features | Inspect all 26 inputs at the same anchor and see how many sequences qualify. |
+| Apply the model | Compare the three probabilities at each anchor with the eventual outcome. |
+| Score positioning | Read the observed and alternative regain probabilities and their difference in percentage points. |
+| Export results | Save the features and match tables, including each team's mean onset press value. |
+| Plot rankings | View team press value, team positioning and player positioning for the selected fixtures. |
+
+Set `INCLUDE_COMPARISONS = True` to request the xG-difference and competition-points
+plots. The notebook reports when the selected fixtures do not support a comparison.
 
 ## Input
 
@@ -254,9 +256,9 @@ in `spn.plotting`. Use `python plot.py --help` for all input and selection optio
 
 The model is named `spn`. Both tasks accept the same 26 feature names in their stored order. The sequence model predicts fail, neutral and success; the positioning model predicts a controlled regain. Training labels and future outcomes are excluded from both sets of predictors.
 
-The reference implementation uses the archived shape graph for sequences and its teamwise correction for positioning. The shape-graph attribution and license are included under `spn/_core/vendor/`.
+The reference implementation uses the archived shape graph for sequences and its teamwise correction for positioning. The shape-graph attribution and license are included under `spn/vendor/`.
 
-[Model artifacts](model/README.md) · [Ordered feature definitions](spn/MODEL.md) · [Shape-graph license](spn/_core/vendor/LICENSE)
+[Model artifacts](model/README.md) · [Ordered feature definitions](spn/MODEL.md) · [Shape-graph license](spn/vendor/LICENSE)
 
 StatsBomb data remains subject to its own licence. The MIT licence here covers
 the released code and model-pipeline packaging only.
