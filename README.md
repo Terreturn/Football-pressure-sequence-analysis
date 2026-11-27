@@ -7,7 +7,7 @@ detects high-pressure sequences, assigns realised sequence labels, builds the
 scores the anchors of resolved, fully representable sequences with the temperature-calibrated XGBoost model. A separate positioning task scores eligible recorded pressers.
 
 Follow one press from its 360 freeze frame through 26 features to its predicted
-outcome, then compare the teams and recorded pressers in three World Cup matches.
+outcome, then compare teams and recorded pressers across the full 2022 FIFA World Cup.
 The worked tables and rankings are visible on GitHub. [Sample workflow](tests/Sample_workflow.ipynb)
 
 Plot team and player rankings for the matches you select. Shot xG and competition points enable two additional team comparisons. [Plot match results](#plot-match-results)
@@ -79,8 +79,9 @@ On macOS, XGBoost requires the OpenMP runtime, available through `brew install l
 ## Sample workflow
 
 The notebook uses Hudl’s `statsbombpy` to fetch events and 360 freeze frames.
-The default matches are England–United States, France–Australia and Argentina–Mexico
-in the 2022 World Cup group stage. [Sample workflow](tests/Sample_workflow.ipynb) · [StatsBomb Open Data](https://github.com/statsbomb/open-data)
+The default selection covers all 64 matches of the 2022 FIFA World Cup, including
+the third-place match and the final. The opening table shows how many fixtures
+were selected at each stage. [Sample workflow](tests/Sample_workflow.ipynb) · [StatsBomb Open Data](https://github.com/statsbomb/open-data)
 
 Install the notebook dependencies and launch Jupyter from the repository root.
 
@@ -89,11 +90,12 @@ python -m pip install -r requirements-plots.txt jupyterlab statsbombpy==1.22.0
 python -m jupyterlab tests/Sample_workflow.ipynb
 ```
 
-Run the cells in order with an internet connection. Change `MATCH_IDS` to select
-other fixtures, or set it to `None` to process all matches with both data sources
-in the chosen competition and season. The downloaded records, per-match tables and
-charts are written under `output/sample/`. Rerunning with another selection updates
-the batch index so the rankings use only the current matches.
+Run the cells in order with an internet connection. Leave `MATCH_IDS = None`
+to process every fixture with event and 360 coverage in the selected competition
+and season. Set it to a list of match IDs for a smaller run. The downloaded
+records, per-match tables and charts are written under `output/sample/`. The
+64 event and 360 pairs use about 520 MiB before model outputs. Rerunning with
+another selection updates the batch index so the rankings use only the current matches.
 
 | Step | Result |
 | --- | --- |
@@ -107,7 +109,8 @@ the batch index so the rankings use only the current matches.
 | Plot rankings | View team press value, team positioning and player positioning for the selected fixtures. |
 
 Set `INCLUDE_COMPARISONS = True` to request the xG-difference and competition-points
-plots. The notebook reports when the selected fixtures do not support a comparison.
+plots. For a World Cup points comparison, select group-stage matches. The full
+tournament includes knockout matches, so the plotter skips that comparison.
 
 ## Input
 
