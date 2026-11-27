@@ -201,7 +201,7 @@ def plot_gain(table: pd.DataFrame) -> plt.Figure:
     axis.set_xlabel("Relative mean gain")
     axis.set_ylabel("")
     axis.set_title(
-        "SPN top-19 XGBoost feature importance",
+        "SPN XGBoost feature importance",
         fontsize=15,
         pad=13,
     )

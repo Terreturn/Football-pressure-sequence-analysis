@@ -1,36 +1,43 @@
 {
-  "model_id": "SPN Classifier",
-  "model_version": "1.0.0",
-  "probability_layer": "raw",
+  "model_id": "spn",
+  "model_version": "9e45b2fb137d",
+  "probability_layer": "temperature",
   "artifact_format": "xgboost-ubj",
   "artifact_file": "model.ubj",
-  "artifact_sha256": "de3621bc74152a3b2cb14d263f6ea83b039812e1b0f868aeeee83c7a0b788807",
-  "exported_with_xgboost": "3.3.0",
+  "artifact_sha256": "9e45b2fb137d73fa594b9ab6ee158a2dec9a525c78e7cd265b34368bd7872889",
+  "exported_with_xgboost": "2.1.4",
   "class_names": [
     "fail",
     "neutral",
     "success"
   ],
   "features": [
-    "n_active_carrier_boundaries",
-    "carrier_x_norm",
-    "press_target_entropy",
+    "ball_in_dist",
     "ball_in_angle_cos",
+    "carrier_x_norm",
     "d_carrier_x_norm_dt",
+    "carrier_touchline_m",
+    "P_total",
+    "d_P_total_dt",
+    "effective_pressers",
+    "n_open_pass",
+    "best_forward_pass_w",
+    "press_target_entropy",
     "mean_receiver_pressure",
     "pressure_mean_focus_entropy",
-    "P_total",
-    "n_open_pass",
-    "effective_pressers",
-    "best_forward_pass_w",
-    "d_P_total_dt",
     "vor_carrier_area_share",
-    "weighted_angular_dispersion",
-    "d_carrier_boundary_pressure_dt",
-    "ball_in_dist",
     "vor_forward_receiver_area_share",
     "d_vor_carrier_area_share",
-    "d_vor_forward_receiver_area_share"
+    "d_vor_forward_receiver_area_share",
+    "sg_n_outlets_uncrossed",
+    "sg_pressed_edges_cut_frac_2m",
+    "sg_press_max_edge",
+    "seq_after_opponent",
+    "best_forward_receiver_relief",
+    "forward_pass_space_share",
+    "local_defender_spread_m",
+    "nearest_presser_support_m",
+    "carrier_forward_space_fraction"
   ],
   "pressure": {
     "player_distance": 6.4,
@@ -55,19 +62,81 @@
   "labels": {
     "min_displacement_m": 3.0,
     "long_switch_m": 25.0,
-    "clearance_high_pass_m": 35.0,
-    "receiver_relief_threshold": 0.65,
     "forward_angle_deg": 60.0,
     "backward_angle_deg": 120.0
   },
   "coordinate_system": {
     "input_provider": "StatsBomb",
-    "input_pitch": [120.0, 80.0],
-    "metric_pitch": [105.0, 68.0]
+    "input_pitch": [
+      120.0,
+      80.0
+    ],
+    "metric_pitch": [
+      105.0,
+      68.0
+    ]
   },
   "training_contract": {
-    "model": "M1 sequence-weighted XGBoost",
-    "feature_schema": "SPN_weighted_top_19",
-    "weighting": "each pressure sequence contributes total training weight one"
+    "model": "XGBoost",
+    "feature_count": 26,
+    "weighting": "each sequence contributes total weight one",
+    "sequence_recipe": {
+      "colsample_bytree": 0.8719057429987207,
+      "eval_metric": "mlogloss",
+      "gamma": 1.4416405196512205,
+      "learning_rate": 0.05,
+      "max_depth": 7,
+      "min_child_weight": 3.7355,
+      "n_estimators": 2850,
+      "n_jobs": 8,
+      "num_class": 3,
+      "objective": "multi:softprob",
+      "random_state": 202405,
+      "reg_lambda": 3.80847296998745,
+      "subsample": 0.8829039205580804,
+      "tree_method": "hist"
+    },
+    "regain_recipe": {
+      "colsample_bytree": 1.0,
+      "eval_metric": "logloss",
+      "learning_rate": 0.04,
+      "max_depth": 3,
+      "min_child_weight": 10,
+      "n_estimators": 250,
+      "n_jobs": 8,
+      "objective": "binary:logistic",
+      "random_state": 20261106,
+      "reg_lambda": 1.0,
+      "subsample": 1.0,
+      "tree_method": "hist",
+      "verbosity": 0
+    }
+  },
+  "temperature_file": "temperature.json",
+  "artifact_checksums": {
+    "model.ubj": "9e45b2fb137d73fa594b9ab6ee158a2dec9a525c78e7cd265b34368bd7872889",
+    "temperature.json": "61a6dbe449cd50633b8315c2d2225356b9cae58c351f5218c5742e0f483ec3dd",
+    "regain_folds.json": "d72a2bbf2c895887212d1ab17a3de1455092a03189459eb435a638c37bf6b4ea",
+    "regain_0.ubj": "17ea5395e08ad3e3c4de5a4c6f5e617fdd2d8448b01c6546136ede955934f916",
+    "regain_1.ubj": "4170623d7a46b9feb0b3db29e608be166cf561b94d280ed1b7bf1910eabbea4e",
+    "regain_2.ubj": "d13afbe3ba9554f410c4abdd303d9c48907d8f235877adb69d172861960263de",
+    "regain_3.ubj": "09df2d7f2a32d9ac3b6df6539023f72196bae906cf84b8d13552ad01511c2a6f",
+    "regain_4.ubj": "e8ca53fb60e789593ac4a0d347ba94adce38191a0fdca4202a8ac3f36c3ba849"
+  },
+  "positioning": {
+    "fold_map": "regain_folds.json",
+    "fold_artifacts": [
+      "regain_0.ubj",
+      "regain_1.ubj",
+      "regain_2.ubj",
+      "regain_3.ubj",
+      "regain_4.ubj"
+    ],
+    "outcome": "five-second controlled regain",
+    "alternatives": 64,
+    "radius_m": [
+      0.5,
+      2.0
+    ]
   }
 }

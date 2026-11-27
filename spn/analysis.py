@@ -1,8 +1,8 @@
 """SPN descriptive analysis shared by the public plot entry point.
 
 Sequence-value and team-analysis definitions are implemented here for the plots.
-Raw probabilities come from the included model.
-No training, calibration, external season tables or private paths are needed.
+Calibrated probabilities come from the included model.
+Scoring uses the bundled temperature mapping.
 """
 from __future__ import annotations
 
@@ -649,8 +649,8 @@ def _check_model_columns(table: pd.DataFrame, model: SPNModel, source: Path) -> 
             raise ValueError(f"{source} is missing {column}; use public predictions.csv outputs")
         if table[column].isna().any() or not table[column].astype(str).eq(str(model.config[column])).all():
             raise ValueError(f"{source} contains predictions from a different or unidentified model")
-    if "probability_layer" in table and not table["probability_layer"].eq("raw").all():
-        raise ValueError("plot analysis requires the frozen model's raw probabilities")
+    if "probability_layer" in table and not table["probability_layer"].eq(model.config["probability_layer"]).all():
+        raise ValueError("plot analysis requires the configured probability layer")
 
 
 def load_analysis_inputs(
@@ -721,7 +721,7 @@ def load_analysis_inputs(
             expected = {
                 "model_id": model.config["model_id"],
                 "model_version": model.config["model_version"],
-                "probability_layer": "raw",
+                "probability_layer": model.config["probability_layer"],
                 "model_artifact_sha256": model.config["artifact_sha256"],
                 "model_config_sha256": hashlib.sha256(model.config_path.read_bytes()).hexdigest(),
                 "features": model.features,
@@ -749,7 +749,7 @@ def load_analysis_inputs(
         repeated[PROBABILITY_COLUMNS].to_numpy(float) - prepared[PROBABILITY_COLUMNS].to_numpy(float)
     )))
     if difference > 1e-6:
-        raise ValueError("features and raw probabilities do not reproduce the supplied model")
+        raise ValueError("features and calibrated probabilities do not reproduce the supplied model")
     return prepared, selected, {
         **audit,
         "sequence_counts_checked": counts_checked,
@@ -757,3 +757,29 @@ def load_analysis_inputs(
         "feature_files": [str(path.resolve()) for path in feature_paths],
         "probability_parity_max_abs_difference": difference,
     }
+
+
+def team_values(scored):
+    """Return the onset count and mean success-minus-failure probability for each pressing team.
+
+    Include dataset when combining seasons. The returned value is on the probability
+    scale and precedes the league-season centering used for Figure 3.
+    """
+    onsets = scored.loc[scored.ev_pos.eq(0)].copy()
+    if onsets.duplicated(["match_id", "seq_id"]).any():
+        raise ValueError("Duplicate sequence onset")
+    # A missing probability would otherwise be counted in presses and skipped by pandas' mean.
+    scores = onsets[["p_success", "p_fail"]].to_numpy(dtype=float)
+    if not np.isfinite(scores).all() or ((scores < 0) | (scores > 1)).any():
+        raise ValueError(
+            "Each onset needs finite success and failure probabilities between zero and one"
+        )
+    onsets["value"] = onsets.p_success - onsets.p_fail
+    groups = ["pressing_team_id"]
+    if "dataset" in onsets:
+        groups.insert(0, "dataset")
+    return (
+        onsets.groupby(groups, dropna=False)
+        .value.agg(presses="size", expected_press_value="mean")
+        .reset_index()
+    )

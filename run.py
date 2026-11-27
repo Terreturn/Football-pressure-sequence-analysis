@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from spn._network import PressureParams
+from spn.positioning import PositioningModel
+from spn.analysis import team_values
 from spn.data_processing import (
     LabelConfig,
     SequenceConfig,
@@ -15,8 +17,8 @@ from spn.data_processing import (
     load_match_data,
 )
 from spn.feature_engineering import build_feature_table
-from spn.model import SPNModel
-from spn.output import build_result, empty_result, save_features, save_result
+from spn.model import KEY_COLUMNS, SPNModel
+from spn.output import _clean_json, build_result, empty_result, save_features, save_result
 
 
 def _runtime_configs(model: SPNModel) -> tuple[PressureParams, SequenceConfig, LabelConfig]:
@@ -34,45 +36,52 @@ def run_pipeline(
     *,
     model: SPNModel | None = None,
     export_features: bool = False,
+    task: str = "sequence",
+    positioning_model: PositioningModel | None = None,
 ) -> dict[str, Any]:
-    """Process one match; optionally export model features for downstream plots."""
+    """Score sequence outcomes, recorded-presser positions, or both in one match."""
+    if task not in {"sequence", "positioning", "both"}:
+        raise ValueError("task must be sequence, positioning or both")
+    match = load_match_data(events_source, three_sixty_source, match_id=match_id)
+    positions = None
+    if task in {"positioning", "both"}:
+        position_model = positioning_model or PositioningModel(model.config_path if model else None)
+        positions = position_model.predict(match)
+    target = Path(output_dir)
+    if task == "positioning":
+        target.mkdir(parents=True, exist_ok=True)
+        positions.to_csv(target / "pressures.csv", index=False)
+        return {"status": "ok", "match_id": match.match_id, "model": {"model_id": position_model.model_id},
+                "audit": {"position_count": len(positions)}, "pressures": positions.to_dict("records")}
+
     frozen_model = model or SPNModel()
     pressure, sequence_config, label_config = _runtime_configs(frozen_model)
-    match = load_match_data(
-        events_source,
-        three_sixty_source,
-        match_id=match_id,
-    )
     sequences, labels = build_sequences_from_match(
         match,
         config=sequence_config,
         params=pressure,
         label_config=label_config,
     )
+    features = build_feature_table(match, sequences, labels, params=pressure)
+    predictions = frozen_model.predict(features)
     if sequences.empty:
         result = empty_result(match, frozen_model)
-        save_result(result, output_dir)
-        if export_features:
-            save_features(None, frozen_model, output_dir)
-        return result
-    features = build_feature_table(
-        match,
-        sequences,
-        labels,
-        params=pressure,
-    )
-    predictions = frozen_model.predict(features)
-    result = build_result(
-        match=match,
-        sequences=sequences,
-        labels=labels,
-        features=features,
-        predictions=predictions,
-        model=frozen_model,
-    )
-    save_result(result, output_dir)
+    else:
+        result = build_result(match=match, sequences=sequences, labels=labels,
+                              features=features, predictions=predictions, model=frozen_model)
+    scored = predictions.merge(features[[*KEY_COLUMNS, "pressing_team_id"]],
+                               on=KEY_COLUMNS, validate="one_to_one")
+    teams = team_values(scored)
+    result["teams"] = _clean_json(teams.to_dict("records"))
+    if positions is not None:
+        result["audit"]["position_count"] = len(positions)
+        result["pressures"] = positions.to_dict("records")
+    save_result(result, target)
+    teams.to_csv(target / "teams.csv", index=False)
+    if positions is not None:
+        positions.to_csv(target / "pressures.csv", index=False)
     if export_features:
-        save_features(features, frozen_model, output_dir)
+        save_features(features, frozen_model, target)
     return result
 
 
@@ -102,12 +111,15 @@ def main() -> None:
     parser.add_argument("--three-sixty-dir", type=Path, help="directory of 360 JSON files")
     parser.add_argument("--output", type=Path, required=True, help="output directory")
     parser.add_argument("--export-features", action="store_true", help="also export model features for driver and team plots")
+    parser.add_argument("--task", choices=["sequence", "positioning", "both"], default="sequence",
+                        help="score sequence outcomes, individual positioning, or both")
     args = parser.parse_args()
     single = args.events is not None or args.three_sixty is not None
     batch = args.events_dir is not None or args.three_sixty_dir is not None
     if single == batch:
         parser.error("choose either single-file mode or directory mode")
-    model = SPNModel()
+    model = SPNModel() if args.task != "positioning" else None
+    position_model = PositioningModel() if args.task != "sequence" else None
     if single:
         if args.events is None or args.three_sixty is None:
             parser.error("--events and --three-sixty must be supplied together")
@@ -118,13 +130,14 @@ def main() -> None:
             match_id=args.match_id,
             model=model,
             export_features=args.export_features,
+            task=args.task, positioning_model=position_model,
         )
         print(
             json.dumps(
                 {
                     "status": result["status"],
                     "match_id": result["match_id"],
-                    "prediction_count": result["audit"]["prediction_count"],
+                    **{key: result["audit"][key] for key in ("prediction_count", "position_count") if key in result["audit"]},
                     "output": str(args.output.resolve()),
                 },
                 ensure_ascii=False,
@@ -145,12 +158,13 @@ def main() -> None:
             match_id=match_id,
             model=model,
             export_features=args.export_features,
+            task=args.task, positioning_model=position_model,
         )
         rows.append(
             {
                 "match_id": match_id,
                 "status": result["status"],
-                "prediction_count": result["audit"]["prediction_count"],
+                **{key: result["audit"][key] for key in ("prediction_count", "position_count") if key in result["audit"]},
                 "output": str(match_output.resolve()),
             }
         )

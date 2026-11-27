@@ -41,11 +41,11 @@ def save_features(
 
 
 EMPTY_PREDICTION_COLUMNS = KEY_COLUMNS + [
-    "period", "timestamp", "event_type", "pressed_team", "press_team",
+    "pressing_team_id", "period", "timestamp", "event_type", "pressed_team", "press_team",
     "observed_outcome", "state", "terminal", "censored",
     "sequence_end_state", "sequence_output", "evaluation_eligible",
     "p_fail", "p_neutral", "p_success", "predicted_class", "confidence",
-    "model_id", "model_version",
+    "model_id", "model_version", "probability_layer",
 ]
 EMPTY_SEQUENCE_COLUMNS = [
     "match_id", "seq_id", "anchor_count", "start_timestamp", "end_timestamp",
@@ -82,6 +82,7 @@ def prediction_table(
         column
         for column in (
             *KEY_COLUMNS,
+            "pressing_team_id",
             "period",
             "timestamp",
             "event_type",
@@ -121,6 +122,7 @@ def prediction_table(
     ).isin(model.class_names)
     table["model_id"] = model.config["model_id"]
     table["model_version"] = model.config["model_version"]
+    table["probability_layer"] = model.config["probability_layer"]
     return table.sort_values(["match_id", "seq_id", "ev_pos"]).reset_index(drop=True)
 
 
@@ -187,6 +189,7 @@ def build_result(
         ) if not sequences.empty else 0,
         "labelled_anchor_count": int(len(labels)),
         "feature_anchor_count": int(len(features)),
+        "excluded_censored_sequences": int(completeness.get("excluded_censored_sequences", 0)),
         "excluded_incomplete_sequences": int(
             completeness.get("excluded_incomplete_sequences", 0)
         ),
@@ -230,6 +233,7 @@ def empty_result(match: Any, model: SPNModel) -> dict[str, Any]:
                 "sequence_count": 0,
                 "labelled_anchor_count": 0,
                 "feature_anchor_count": 0,
+                "excluded_censored_sequences": 0,
                 "excluded_incomplete_sequences": 0,
                 "prediction_count": 0,
                 "warnings": list(match.warnings),
