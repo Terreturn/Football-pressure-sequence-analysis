@@ -70,7 +70,7 @@ def main():
             overwrite=args.overwrite,
         )
     except ImportError as error:
-        parser.error(f"Missing plotting dependency: {error}. Install requirements-plots.txt")
+        parser.error(f"Missing plotting dependency: {error}. Run python -m pip install -r requirements.txt")
     except (OSError, ValueError) as error:
         parser.error(str(error))
     print(json.dumps(report, indent=2, ensure_ascii=False))

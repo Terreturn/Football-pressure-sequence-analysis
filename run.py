@@ -7,9 +7,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from spn._network import PressureParams
-from spn.positioning import PositioningModel
-from spn.analysis import team_values
 from spn.data_processing import (
     LabelConfig,
     SequenceConfig,
@@ -18,7 +15,9 @@ from spn.data_processing import (
 )
 from spn.feature_engineering import build_feature_table
 from spn.model import KEY_COLUMNS, SPNModel
-from spn.output import _clean_json, build_result, empty_result, save_features, save_result
+from spn.networks import PressureParams
+from spn.output import _clean_json, build_result, empty_result, save_features, save_result, team_values
+from spn.positioning import PositioningModel
 
 
 def _runtime_configs(model: SPNModel) -> tuple[PressureParams, SequenceConfig, LabelConfig]:
@@ -118,39 +117,20 @@ def main() -> None:
     batch = args.events_dir is not None or args.three_sixty_dir is not None
     if single == batch:
         parser.error("choose either single-file mode or directory mode")
-    model = SPNModel() if args.task != "positioning" else None
-    position_model = PositioningModel() if args.task != "sequence" else None
     if single:
         if args.events is None or args.three_sixty is None:
             parser.error("--events and --three-sixty must be supplied together")
-        result = run_pipeline(
-            args.events,
-            args.three_sixty,
-            args.output,
-            match_id=args.match_id,
-            model=model,
-            export_features=args.export_features,
-            task=args.task, positioning_model=position_model,
-        )
-        print(
-            json.dumps(
-                {
-                    "status": result["status"],
-                    "match_id": result["match_id"],
-                    **{key: result["audit"][key] for key in ("prediction_count", "position_count") if key in result["audit"]},
-                    "output": str(args.output.resolve()),
-                },
-                ensure_ascii=False,
-            )
-        )
-        return
-    if args.events_dir is None or args.three_sixty_dir is None:
-        parser.error("--events-dir and --three-sixty-dir must be supplied together")
+        fixtures = [(args.match_id, args.events, args.three_sixty)]
+    else:
+        if args.events_dir is None or args.three_sixty_dir is None:
+            parser.error("--events-dir and --three-sixty-dir must be supplied together")
+        fixtures = _paired_json_files(args.events_dir, args.three_sixty_dir)
+
+    model = SPNModel() if args.task != "positioning" else None
+    position_model = PositioningModel() if args.task != "sequence" else None
     rows = []
-    for match_id, event_path, frame_path in _paired_json_files(
-        args.events_dir, args.three_sixty_dir
-    ):
-        match_output = args.output / match_id
+    for match_id, event_path, frame_path in fixtures:
+        match_output = args.output if single else args.output / match_id
         result = run_pipeline(
             event_path,
             frame_path,
@@ -158,21 +138,23 @@ def main() -> None:
             match_id=match_id,
             model=model,
             export_features=args.export_features,
-            task=args.task, positioning_model=position_model,
+            task=args.task,
+            positioning_model=position_model,
         )
+        audit = result["audit"]
         rows.append(
             {
-                "match_id": match_id,
+                "match_id": result["match_id"],
                 "status": result["status"],
-                **{key: result["audit"][key] for key in ("prediction_count", "position_count") if key in result["audit"]},
+                **{key: audit[key] for key in ("prediction_count", "position_count") if key in audit},
                 "output": str(match_output.resolve()),
             }
         )
-    args.output.mkdir(parents=True, exist_ok=True)
-    (args.output / "batch_result.json").write_text(
-        json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
-    print(json.dumps(rows, ensure_ascii=False))
+    if batch:
+        (args.output / "batch_result.json").write_text(
+            json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+    print(json.dumps(rows[0] if single else rows, ensure_ascii=False))
 
 
 if __name__ == "__main__":
