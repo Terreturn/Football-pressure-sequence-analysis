@@ -8,7 +8,7 @@ scores the anchors of resolved, fully representable sequences with the temperatu
 
 Follow one press from its 360 freeze frame through 26 features to its predicted
 outcome, then compare teams and recorded pressers across the full 2022 FIFA World Cup.
-The worked tables and rankings are visible on GitHub. [Sample workflow](tests/Sample_workflow.ipynb)
+The worked tables, rankings and two team scatter plots are visible on GitHub. [Sample workflow](tests/Sample_workflow.ipynb)
 
 Plot team and player rankings for the matches you select. Shot xG and competition points enable two additional team comparisons. [Plot match results](#plot-match-results)
 
@@ -107,10 +107,12 @@ another selection updates the batch index so the rankings use only the current m
 | Score positioning | Read the observed and alternative regain probabilities and their difference in percentage points. |
 | Export results | Save the features and match tables, including each team's mean onset press value. |
 | Plot rankings | View team press value, team positioning and player positioning for the selected fixtures. |
+| View team scatter plots | Compare relative press value with xG difference across all selected matches, then compare positioning with points in the league or group stage. |
 
-Set `INCLUDE_COMPARISONS = True` to request the xG-difference and competition-points
-plots. For a World Cup points comparison, select group-stage matches. The full
-tournament includes knockout matches, so the plotter skips that comparison.
+The scatter plots appear in a separate notebook block after the rankings. For the
+2022 World Cup, the xG comparison uses all 64 matches. The points comparison uses
+the same 48 group-stage fixtures for both axes. Each point represents one team
+with a score for the corresponding metric.
 
 ## Input
 

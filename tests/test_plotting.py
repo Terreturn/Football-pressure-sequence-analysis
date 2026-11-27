@@ -199,5 +199,12 @@ def test_points_stage_rules_and_minimum_pressures(cohort, tmp_path):
     path.write_text(json.dumps(games))
     r = generate_plots(out, **args, overwrite=True)
     assert r["plots"]["positioning-points"]["status"] == "skipped"
+    group = generate_plots(out, **args, match_ids=[100], overwrite=True)
+    assert group["match_ids"] == ["100"]
+    points = pd.read_csv(out / "positioning-points.csv").set_index("team_id")
+    assert set(points.index) == {"A", "B"}
+    assert points.loc["A", ["pressures", "position_quality_pp", "points"]].tolist() == [1, 2.0, 3]
+    with pytest.raises(ValueError, match="999"):
+        generate_plots(out, **args, match_ids=["100", "999"], overwrite=True)
     with pytest.raises(ValueError, match="minutes"):
         generate_plots(out, input_source=source, min_minutes=50)

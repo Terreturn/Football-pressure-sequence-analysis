@@ -33,6 +33,7 @@ def generate_plots(
     output_dir,
     *,
     input_source,
+    match_ids=None,
     plots=None,
     events_dir=None,
     points=None,
@@ -42,7 +43,7 @@ def generate_plots(
     top_players=10,
     overwrite=False,
 ):
-    """Write PNG, PDF and CSV files for the selected match cohort and return its coverage report."""
+    """Write PNG, PDF and CSV files for all input matches or the specified match IDs."""
     if plots is None:
         selected = list(RANKINGS)
         if events_dir is not None:
@@ -59,7 +60,7 @@ def generate_plots(
         not np.isfinite(min_minutes) or min_minutes < 0 or player_minutes is None
     ):
         raise ValueError("A nonnegative minimum minutes threshold requires a player minutes CSV")
-    cohort = load_cohort(input_source, events_dir)
+    cohort = load_cohort(input_source, events_dir, match_ids)
     point_values, points_note = (
         fixture_points(points, cohort)
         if points is not None
@@ -228,13 +229,16 @@ def fixture_directories(root):
         yield folder, None, (folder / "teams.csv").is_file(), (folder / "pressures.csv").is_file()
 
 
-def load_cohort(source, events_dir):
+def load_cohort(source, events_dir, match_ids=None):
     cohort = Cohort()
+    selected = None if match_ids is None else {str(mid) for mid in match_ids}
     if events_dir is not None:
         events_dir = Path(events_dir)
         if not events_dir.is_dir():
             raise FileNotFoundError(f"Missing events directory: {events_dir}")
     for folder, declared_id, sequence, positioning in fixture_directories(Path(source)):
+        if selected is not None and declared_id is not None and declared_id not in selected:
+            continue
         ids = {declared_id} if declared_id is not None else set()
         names = {}
         if sequence and (folder / "predictions.csv").is_file():
@@ -263,6 +267,8 @@ def load_cohort(source, events_dir):
         if len(ids) > 1:
             raise ValueError(f"Conflicting match IDs in {folder}")
         mid = next(iter(ids), folder.name)
+        if selected is not None and mid not in selected:
+            continue
         if mid in cohort.matches:
             raise ValueError(f"Duplicate match {mid}")
         cohort.matches.add(mid)
@@ -287,6 +293,8 @@ def load_cohort(source, events_dir):
             cohort.position_matches.add(mid)
         if events_dir is not None and (events_dir / f"{mid}.json").is_file():
             add_events(cohort, mid, events_dir / f"{mid}.json")
+    if selected is not None and selected - cohort.matches:
+        raise ValueError(f"Missing SPN outputs for match IDs: {sorted(selected - cohort.matches)}")
     if not cohort.matches:
         raise ValueError(f"No SPN fixture outputs in {source}")
     return cohort
