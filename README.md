@@ -9,8 +9,7 @@ scores the anchors of resolved, fully representable sequences with the temperatu
 The sample notebook covers loading public data, processing, model inference,
 evaluation, team expected press value, and individual positioning. [Sample workflow](tests/Sample_workflow.ipynb)
 
-The plotting scripts reproduce Figures 1–4 of the paper from the network schematic
-and the published summary tables. [Draw the paper figures](#draw-the-paper-figures)
+Plot team and player rankings for the matches you select. Shot xG and competition points enable two additional team comparisons. [Plot match results](#plot-match-results)
 
 ## Contributors
 
@@ -27,7 +26,6 @@ Their contributions were integrated and uploaded by [Terreturn](https://github.c
 .
 ├── run.py
 ├── plot.py
-├── plot_data/
 ├── requirements.txt
 ├── requirements-plots.txt
 ├── tests/
@@ -48,7 +46,6 @@ Their contributions were integrated and uploaded by [Terreturn](https://github.c
     ├── model.py
     ├── positioning.py
     ├── _core/
-    ├── _paper_figures/
     ├── output.py
     ├── analysis.py
     └── plotting.py
@@ -65,7 +62,7 @@ Their contributions were integrated and uploaded by [Terreturn](https://github.c
 - `output.py`: compact JSON and CSV outputs.
 - `analysis.py`: sequence valuation, team aggregation, feature-change
   associations and bootstrap intervals using public outputs.
-- `plotting.py` and `_paper_figures/` draw the four paper figures and export them as vector PDFs and 425 DPI PNGs.
+- `plotting.py` draws rankings and comparisons from match outputs. `_plot_data.py` reads the selected fixtures and `_plot_style.py` renders their teams and players.
 
 ## Environment
 
@@ -216,45 +213,42 @@ tables. Missing or unusable frames are never fabricated. If one anchor in a
 sequence cannot be represented, the complete sequence is excluded and counted
 in the audit.
 
-## Draw the paper figures
+## Plot match results
 
-From the repository root, install the plotting dependencies and render all four figures.
+Install the optional plotting dependencies and score your fixtures with `--task both`.
+Point the plotting command at a single match directory or at the batch directory
+produced by `run.py`. Use one competition, season and stage for comparisons.
 
 ```bash
 python -m pip install -r requirements-plots.txt
-python plot.py --output plots/paper
+python run.py --events-dir events --three-sixty-dir three_sixty --task both --output output
+python plot.py --input output --output plots/rankings
 ```
 
-To render selected figures, pass their paper numbers, for example
-`python plot.py --figures 2 4 --output plots/selected`. Use `--overwrite` to replace
-existing figure files. In Python, call `spn.plotting.generate_plots` with the same
-selection.
-
-```python
-from spn.plotting import generate_plots
-
-report = generate_plots("plots/selected", plots=(2, 4), overwrite=True)
-```
-
-| Figure | Panels | Inputs |
+| Plot | What each value measures | Input |
 | --- | --- | --- |
-| 1 | A high press, its network layers, the combined structural pressure network and a sequence prediction schematic | The renderer defines the example pitch geometry and constructs the network. |
-| 2 | Success prediction AUC, feature contributions from exact TreeSHAP, and the change in log loss from nine to 26 inputs | `figure2_auc.csv`, `figure2_shap.csv`, `figure2_network_gains.csv` |
-| 3 | Club expected press value versus expected-goal difference in the 2025/26 Premier League, and rank correlations across 29 league-seasons | `figure3_epl_teams.csv`, `figure3_season_intervals.csv` |
-| 4 | A presser's feasible alternative positions, club positioning scores versus season points, and the ten highest eligible player means | `high_clubs.csv`, `high_players.csv`, `club_interval.json`, club labels from `figure3_epl_teams.csv`, and the supplied caption |
+| `team-value` | Mean of `p_success - p_fail` at sequence onset. Across matches, each team's match mean is weighted by its number of scored sequences. | `teams.csv` |
+| `team-positioning` | Mean `position_quality_pp` over the team's scored pressures. Each pressure contributes once. | `pressures.csv` |
+| `player-positioning` | Mean of the same score for each player across their appearances, in percentage points. | `pressures.csv` |
+| `value-xgd` | Team press value relative to the mean of **all scored onsets** in the selected matches, versus mean xG for minus xG against per match. Shootouts are excluded. | `teams.csv` and StatsBomb events for every selected fixture |
+| `positioning-points` | Team mean positioning score versus the sum of competition points earned in exactly the selected matches. | `pressures.csv` and per-match points or match results |
 
-Figures 2–4 use the paper's saved estimates in `plot_data/`. A fresh checkout has
-all the inputs needed to reproduce the figures. To use prepared tables in the same
-format from another directory, pass `--tables PATH`. [Plot tables](plot_data/)
+The three rankings are selected by default. Supplying `--events-dir` also selects the xG
+comparison. Supplying `--points` also selects the points comparison. To choose particular
+plots, supply their names.
 
-Each figure produces a vector PDF and a 425 DPI PNG in the output directory.
-Figure 3 also produces a manuscript-size PNG preview. Figure 4 writes its caption
-to a LaTeX file and the ten displayed players to a CSV. Eligibility for the player panel is
-at least 15 eligible high presses and 1,350 league minutes.
+```bash
+python plot.py --input output --events-dir events --points matches.json --output plots/tournament
+python plot.py --input output --plots player-positioning --events-dir events --min-pressures 5 --top-players 15 --output plots/players
+```
 
-The paper's reference PNG checksums are in `plot_data/reference_png_hashes.json`.
-The original rendering environment used Matplotlib 3.9.4 and Pillow 11.3.0.
-Library and font-rendering versions can affect the image bytes.
+- **Names and coverage.** Team names come from the predictions or supplied match data. StatsBomb event files named `<match_id>.json` provide player names and identify participants with no scored pressure. IDs label participants whose names are unavailable. For an empty positioning-only single-match export, use the original match ID as its directory name so the event file can be found.
+- **Player selection.** The default chart displays up to 10 players with at least one scored pressure. Set `--min-pressures` and `--top-players` for another sample. For a playing-time threshold, supply `--player-minutes minutes.csv --min-minutes 90`. The CSV takes `match_id,player_id,minutes` and optional `player_name`, with one row per appearance. Minutes are summed over selected fixtures. Missing playing time for a known appearance is reported. Rankings use unrounded scores and share ranks for ties.
+- **Competition points.** `--points` accepts a StatsBomb matches JSON for a single regular season, league stage or group stage (three points for a win and one for a draw). For another scoring system use CSV columns `match_id,team_id,points` and optional `team_name`, one row for each side per fixture. Rows outside the selected matches are ignored. Knockout fixtures can use the positioning rankings directly.
+- **Outputs.** Each drawn chart produces PNG, PDF and CSV files. The ranking CSV includes counts, ranks, eligibility and which rows appear on the chart. An identified participant with no scored events has a count of zero and a blank score. An empty ranking displays an explicit message. If an inference task or supplemental comparison data is missing for part of the cohort, the corresponding plot is skipped with a reason in `manifest.json`. Use `--overwrite` to replace a previous report in the same directory.
+
+The equivalent Python entry point is `generate_plots("plots/rankings", input_source="output")`
+in `spn.plotting`. Use `python plot.py --help` for all input and selection options.
 
 ## Frozen model contract
 
