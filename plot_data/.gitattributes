@@ -1,0 +1,3 @@
+# Preserve the line endings of the paper's reference tables on checkout.
+* text eol=lf
+high_*.csv text eol=crlf

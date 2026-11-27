@@ -9,10 +9,8 @@ scores the anchors of resolved, fully representable sequences with the temperatu
 The sample notebook covers loading public data, processing, model inference,
 evaluation, team expected press value, and individual positioning. [Sample workflow](tests/Sample_workflow.ipynb)
 
-It also provides optional feature-importance, feature-change/transition-value,
-and team pressure-intensity/efficiency plots. It does not contain training,
-feature selection, calibration fitting, official league standings,
-match results, or raw match data.
+The plotting scripts reproduce Figures 1–4 of the paper from the network schematic
+and the published summary tables. [Draw the paper figures](#draw-the-paper-figures)
 
 ## Contributors
 
@@ -29,6 +27,7 @@ Their contributions were integrated and uploaded by [Terreturn](https://github.c
 .
 ├── run.py
 ├── plot.py
+├── plot_data/
 ├── requirements.txt
 ├── requirements-plots.txt
 ├── tests/
@@ -49,6 +48,7 @@ Their contributions were integrated and uploaded by [Terreturn](https://github.c
     ├── model.py
     ├── positioning.py
     ├── _core/
+    ├── _paper_figures/
     ├── output.py
     ├── analysis.py
     └── plotting.py
@@ -65,7 +65,7 @@ Their contributions were integrated and uploaded by [Terreturn](https://github.c
 - `output.py`: compact JSON and CSV outputs.
 - `analysis.py`: sequence valuation, team aggregation, feature-change
   associations and bootstrap intervals using public outputs.
-- `plotting.py`: the three plots and PNG/JPEG/PDF/SVG export; no bottom notes.
+- `plotting.py` and `_paper_figures/` draw the four paper figures and export them as vector PDFs and 425 DPI PNGs.
 
 ## Environment
 
@@ -174,8 +174,10 @@ print(result["status"])
 print(result["audit"])
 ```
 
-Pass `export_features=True` to also write the inputs needed by the data-dependent
-plots. The returned result has the same fields with either setting.
+Pass `export_features=True` in Python or `--export-features` on the command line
+to save `features.csv` and `features_metadata.json` for each match. The CSV contains
+the four anchor identifiers and 26 model inputs. The metadata records their order
+and the model, configuration and feature-file checksums.
 
 The two sources may also be already-decoded Python lists. In that case a
 `match_id` must be supplied.
@@ -214,93 +216,45 @@ tables. Missing or unusable frames are never fabricated. If one anchor in a
 sequence cannot be represented, the complete sequence is excluded and counted
 in the audit.
 
-## Generate the three plots
+## Draw the paper figures
 
-Install the optional plotting dependencies:
+From the repository root, install the plotting dependencies and render all four figures.
 
 ```bash
 python -m pip install -r requirements-plots.txt
+python plot.py --output plots/paper
 ```
 
-Feature importance uses the frozen model alone and does not require match data:
-
-```bash
-python plot.py --plots importance --output plots/importance
-```
-
-For all three plots, first export features during the normal inference run:
-
-```bash
-python run.py --events-dir events --three-sixty-dir three_sixty --output output --export-features
-python plot.py --input output --output plots
-```
-
-Single-match inference supports the same `--export-features` flag. With this
-flag, each match writes `features.csv` and `features_metadata.json` alongside
-`result.json`, `predictions.csv`, and `sequences.csv`. Feature CSVs contain the
-four anchor keys and exactly the 26 model features. They contain no observed
-outcomes or future label evidence. Metadata records model/config hashes and
-the feature file hash.
-
-`plot.py` accepts a single-match directory, a batch directory, or a predictions
-CSV. It finds `features.csv` beside each predictions file. If that file is
-absent, provide `--features path/to/features.csv` or re-run inference with
-`--export-features`; probabilities alone cannot recover pressure or geometric
-features. An explicit feature CSV must contain the four anchor keys and all
-26 model features. CSV identifiers are read as strings.
-
-Select individual plots with `--plots importance drivers teams`, and formats
-with `--formats png jpeg pdf svg`. The default is all three plots in all four
-formats. Output is grouped into `PNG/`, `JPEG/`, `PDF/`, `SVG/`, and `tables/`.
-`manifest.json` records model identity, input coverage, definitions, numerical
-audits, output hashes, and any skipped analyses. Use `--overwrite` to replace
-existing outputs.
-
-Python entry point:
+To render selected figures, pass their paper numbers, for example
+`python plot.py --figures 2 4 --output plots/selected`. Use `--overwrite` to replace
+existing figure files. In Python, call `spn.plotting.generate_plots` with the same
+selection.
 
 ```python
 from spn.plotting import generate_plots
 
-report = generate_plots("plots", input_source="output")
+report = generate_plots("plots/selected", plots=(2, 4), overwrite=True)
 ```
 
-### What the plots measure
+| Figure | Panels | Inputs |
+| --- | --- | --- |
+| 1 | A high press, its network layers, the combined structural pressure network and a sequence prediction schematic | The renderer defines the example pitch geometry and constructs the network. |
+| 2 | Success prediction AUC, feature contributions from exact TreeSHAP, and the change in log loss from nine to 26 inputs | `figure2_auc.csv`, `figure2_shap.csv`, `figure2_network_gains.csv` |
+| 3 | Club expected press value versus expected-goal difference in the 2025/26 Premier League, and rank correlations across 29 league-seasons | `figure3_epl_teams.csv`, `figure3_season_intervals.csv` |
+| 4 | A presser's feasible alternative positions, club positioning scores versus season points, and the ten highest eligible player means | `high_clubs.csv`, `high_players.csv`, `club_interval.json`, club labels from `figure3_epl_teams.csv`, and the supplied caption |
 
-- **Feature importance:** normalized mean split gain from the frozen sequence
-  XGBoost model; it remains the same when only the input matches change.
-- **Feature changes and v_t:** Pearson associations between changes in the non-difference
-  model features and the next-anchor change in `p_success - p_fail`,
-  plus the joint linear-regression R-squared. It is data-dependent descriptive
-  association, not a second model-only importance measure. The four temporal
-  features are not differenced again. Constant-feature correlations are left
-  undefined in the table and omitted from bars.
-- **Team intensity and efficiency:** teams are taken from the output's
-  `press_team` field, without a fixed team list, season table, or match count.
-  Intensity is the sum of `P_total` across eligible anchors divided by matches
-  in which that team has eligible sequences. Efficiency is the team mean
-  sequence value relative to the sequence-weighted mean of the input dataset,
-  multiplied by 100. Bubble area represents evaluated sequences and colour
-  represents their observed success rate.
+Figures 2–4 use the paper's saved estimates in `plot_data/`. A fresh checkout has
+all the inputs needed to reproduce the figures. To use prepared tables in the same
+format from another directory, pass `--tables PATH`. [Plot tables](plot_data/)
 
-This optional composite-efficiency plot uses a different statistic from the paper’s onset value in `teams.csv`. Its sequence value is the sum of forward probability-value changes plus
-`terminal_weight` times the terminal component. That component is the last
-`p_success` for success, zero for neutral, and minus the last `p_fail` for fail.
-Each eligible sequence has equal weight. Censored and incomplete sequences are
-excluded. No additional calibration or training weights are applied.
+Each figure produces a vector PDF and a 425 DPI PNG in the output directory.
+Figure 3 also produces a manuscript-size PNG preview. Figure 4 writes its caption
+to a LaTeX file and the ten displayed players to a CSV. Eligibility for the player panel is
+at least 15 eligible high presses and 1,350 league minutes.
 
-Defaults: terminal weight 0.5, 2,000 bootstrap iterations, random seed 20260824,
-300 DPI. Override these with `--terminal-weight`, `--bootstrap-iterations`,
-`--random-state`, and `--dpi`. Intervals resample matches within each team and
-recompute the dataset mean. Match counts and the zero reference refer to the
-supplied eligible data, not automatically to the entire season. Matches with
-no eligible sequence are excluded from this intensity denominator.
-
-Valid empty/censored input and insufficient transitions produce explicit
-`skipped` entries instead of invented values. Malformed input, mixed model
-identities, mismatched features/probabilities, or incomplete exported sequences
-raise errors. When `sequences.csv` is available, its anchor counts are checked
-to detect truncated sequence tails. Standalone CSV users must supply complete
-sequences; continuity alone cannot prove that the final anchor is present.
+The paper's reference PNG checksums are in `plot_data/reference_png_hashes.json`.
+The original rendering environment used Matplotlib 3.9.4 and Pillow 11.3.0.
+Library and font-rendering versions can affect the image bytes.
 
 ## Frozen model contract
 

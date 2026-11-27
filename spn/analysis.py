@@ -1,6 +1,6 @@
-"""SPN descriptive analysis shared by the public plot entry point.
+"""SPN descriptive analysis for match predictions.
 
-Sequence-value and team-analysis definitions are implemented here for the plots.
+Compute sequence values and team summaries from match outputs.
 Calibrated probabilities come from the included model.
 Scoring uses the bundled temperature mapping.
 """

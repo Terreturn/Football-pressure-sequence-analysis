@@ -17,7 +17,7 @@ def save_features(
     model: SPNModel,
     output_dir: str | Path,
 ) -> None:
-    """Export only anchor keys and the frozen model inputs for downstream plots."""
+    """Export only anchor keys and the frozen model inputs for each scored event."""
     target = Path(output_dir)
     target.mkdir(parents=True, exist_ok=True)
     columns = [*KEY_COLUMNS, *model.features]

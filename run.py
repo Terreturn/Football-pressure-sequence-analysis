@@ -110,7 +110,7 @@ def main() -> None:
     parser.add_argument("--events-dir", type=Path, help="directory of event JSON files")
     parser.add_argument("--three-sixty-dir", type=Path, help="directory of 360 JSON files")
     parser.add_argument("--output", type=Path, required=True, help="output directory")
-    parser.add_argument("--export-features", action="store_true", help="also export model features for driver and team plots")
+    parser.add_argument("--export-features", action="store_true", help="also export the 26 model inputs for each scored event")
     parser.add_argument("--task", choices=["sequence", "positioning", "both"], default="sequence",
                         help="score sequence outcomes, individual positioning, or both")
     args = parser.parse_args()
